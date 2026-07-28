@@ -1,0 +1,72 @@
+{
+  "color": [
+    {
+      "name": "bg_main",
+      "value": "#0D0D0D"
+    },
+    {
+      "name": "card_bg",
+      "value": "#1A1A1A"
+    },
+    {
+      "name": "text_primary",
+      "value": "#E8E8E8"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#A0A0B0"
+    },
+    {
+      "name": "text_white",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "brand_blue",
+      "value": "#007AFF"
+    },
+    {
+      "name": "expense_red",
+      "value": "#FF3B30"
+    },
+    {
+      "name": "income_gold",
+      "value": "#F5A623"
+    },
+    {
+      "name": "border_color",
+      "value": "#333333"
+    },
+    {
+      "name": "expense_tag_bg",
+      "value": "#4A1A1A"
+    },
+    {
+      "name": "income_tag_bg",
+      "value": "#4A3A10"
+    },
+    {
+      "name": "expense_tag_text",
+      "value": "#FF6B6B"
+    },
+    {
+      "name": "income_tag_text",
+      "value": "#FFC107"
+    },
+    {
+      "name": "category_btn_bg",
+      "value": "#2A2A2A"
+    },
+    {
+      "name": "stat_text_color",
+      "value": "#AAAAAA"
+    },
+    {
+      "name": "stat_text_light",
+      "value": "#888888"
+    },
+    {
+      "name": "start_window_background",
+      "value": "#000000"
+    }
+  ]
+}

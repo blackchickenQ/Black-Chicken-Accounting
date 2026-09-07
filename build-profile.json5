@@ -1,0 +1,79 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\wuqiy\\.ohos\\config\\default_MyApplication_fGeHFcml93FJRRR6Iae5nVZbs3kyjhu3CXh2sxgkIyc=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B060AD3D1953BB9DE479B1CDBEF0AA6EE2A71304E2D271BAB89966DCFF9EC5CCF228FE69AE15586",
+          "profile": "C:\\Users\\wuqiy\\.ohos\\config\\default_MyApplication_fGeHFcml93FJRRR6Iae5nVZbs3kyjhu3CXh2sxgkIyc=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\wuqiy\\.ohos\\config\\default_MyApplication_fGeHFcml93FJRRR6Iae5nVZbs3kyjhu3CXh2sxgkIyc=.p12",
+          "storePassword": "0000001BE504F98A883FEC0360FDCEDE838C3454CA8EAA9DE4890C61CACAB567FF9A35CE06C8CE3E5EAEFC"
+        }
+      },
+      {
+        "name": "release",
+        "type": "HarmonyOS",
+        "material": {
+          "storeFile": "C:/Users/wuqiy/Documents/certificates/wujijizhang_release_key.p12",
+          "storePassword": "0000001FC83F47415500A273627C457D9A8599DD32D4722F4639D09FB139A04A6310AEE9726F4BC7A0D1E710D5D971",
+          "keyAlias": "release_key",
+          "keyPassword": "0000001F48397FE924D551CA4D2A2C22EA88A06E6F2212DE0F4B694B6B9A0A404EC9BFDA050781F22A740F28219A34",
+          "signAlg": "SHA256withECDSA",
+          "profile": "C:/Users/wuqiy/Downloads/乌鸡记账ProfileRelease.p7b",
+          "certpath": "C:/Users/wuqiy/Downloads/wujijizhang_release_key.cer"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "6.1.1(24)",
+        "compatibleSdkVersion": "5.0.2(14)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        },
+        "versionCode": 1000002,        // ⬅️ 加这行
+        "versionName": "1.2.0"   // ⬅️ 加这行
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug",
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "base_calendar",
+      "srcPath": "./entry/libs/base_calendar" // 路径根据你的实际位置调整
+    },
+    {
+      "name": "base_apis",
+      "srcPath": "./entry/libs/base_apis"
+    }
+  ]
+}

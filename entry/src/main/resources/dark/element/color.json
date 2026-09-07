@@ -67,6 +67,17 @@
     {
       "name": "start_window_background",
       "value": "#000000"
-    }
+    },
+    {
+      "name": "status_bar_bg",
+      "value": "#0D0D0D"
+    },
+    { "name": "calendar_bg", "value": "#1C1C1E" },
+    { "name": "calendar_text", "value": "#E6E6E6" },
+    { "name": "calendar_week_text", "value": "#99E6E6E6" },
+    { "name": "calendar_other_text", "value": "#33E6E6E6" },
+    { "name": "calendar_today_bg", "value": "#0A59F7" },
+    { "name": "calendar_today_text", "value": "#FFFFFF" },
+    { "name": "calendar_selected_bg", "value": "#1A0A59F7" }
   ]
 }

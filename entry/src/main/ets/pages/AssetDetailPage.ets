@@ -336,7 +336,7 @@ struct AssetDetailPage {
                 .animation({ curve: AnimationConfig.SPRING }))
             }
           },
-          (item: AssetCategory, index: number) => item.name + '_' + this.refreshKey   // ✅ 复合 key
+          (item: AssetCategory, index: number) => item.name + '_' + item.amount + '_' + this.refreshKey   // ✅ 复合 key（含金额，金额变化时触发该行刷新）
         )
       }
       .width('100%')

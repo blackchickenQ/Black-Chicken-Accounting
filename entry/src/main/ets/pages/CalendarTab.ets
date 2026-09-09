@@ -1,4 +1,4 @@
-import { BillItem, CATEGORY_COLORS, AnimationConfig } from './Index';
+import { BillItem, getCategoryColor, AnimationConfig } from './Index';
 
 
 interface CalendarDay {
@@ -373,7 +373,7 @@ export struct CalendarTab {
                     .width(8)
                     .height(8)
                     .borderRadius(4)
-                    .backgroundColor(CATEGORY_COLORS[item.category] || '#B2BEC3')
+                    .backgroundColor(getCategoryColor(item.category))
                     .margin({ right: 12 })
 
                   Text(item.type)

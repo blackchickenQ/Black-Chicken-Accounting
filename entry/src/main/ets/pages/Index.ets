@@ -18,6 +18,7 @@ import notificationManager from '@ohos.notificationManager';
 import { reminderAgentManager } from '@kit.BackgroundTasksKit';
 import { uiAppearance } from '@kit.ArkUI';
 import { CalendarTab } from './CalendarTab';
+import { CategoryManageParams } from './CategoryManagePage';
 import { BaseCalendar } from 'base_calendar';
 import { curves } from '@kit.ArkUI';
 
@@ -34,7 +35,7 @@ export class AnimationConfig {
 }
 
 // ---------- 2. 分类定义 ----------
-const CATEGORIES: string[] = ['餐饮', '交通', '购物', '娱乐', '医疗', '教育', '其他'];
+export const CATEGORIES: string[] = ['餐饮', '交通', '购物', '娱乐', '医疗', '教育', '其他'];
 export const CATEGORY_COLORS: Record<string, string> = {
   '餐饮': '#FF6B6B',
   '交通': '#4ECDC4',
@@ -50,6 +51,80 @@ interface AssetCategory {
   amount: number;
 }
 
+// ---------- 3. 多账本定义 ----------
+export const DEFAULT_LEDGER_ID: number = 1;
+
+export interface LedgerItem {
+  id: number;
+  name: string;
+  icon: string;
+  color: string;
+  categories: string[];
+  createdAt: number;
+  isDefault: boolean;
+}
+
+// 账本可选图标（sys.symbol 名称已在 SDK sysResource.js 中验证）
+export const LEDGER_ICON_KEYS: string[] = [
+  'book', 'house', 'airplane', 'briefcase', 'cart', 'gift', 'heart',
+  'pawprint', 'gamecontroller', 'graduationcap', 'creditcard', 'wallet',
+  'car', 'fork_knife', 'lightbulb', 'leaf'
+];
+
+export function getLedgerIconResource(iconKey: string): Resource {
+  switch (iconKey) {
+    case 'house':
+      return $r('sys.symbol.house');
+    case 'airplane':
+      return $r('sys.symbol.airplane');
+    case 'briefcase':
+      return $r('sys.symbol.briefcase');
+    case 'cart':
+      return $r('sys.symbol.cart');
+    case 'gift':
+      return $r('sys.symbol.gift');
+    case 'heart':
+      return $r('sys.symbol.heart');
+    case 'pawprint':
+      return $r('sys.symbol.pawprint');
+    case 'gamecontroller':
+      return $r('sys.symbol.gamecontroller');
+    case 'graduationcap':
+      return $r('sys.symbol.graduationcap');
+    case 'creditcard':
+      return $r('sys.symbol.creditcard');
+    case 'wallet':
+      return $r('sys.symbol.wallet');
+    case 'car':
+      return $r('sys.symbol.car');
+    case 'fork_knife':
+      return $r('sys.symbol.fork_knife');
+    case 'lightbulb':
+      return $r('sys.symbol.lightbulb');
+    case 'leaf':
+      return $r('sys.symbol.leaf');
+    default:
+      return $r('sys.symbol.book');
+  }
+}
+
+// 分类取色：内置分类用固定色，自定义分类按名称哈希取调色板颜色
+export function getCategoryColor(category: string): string {
+  const color = CATEGORY_COLORS[category];
+  if (color !== undefined) {
+    return color;
+  }
+  const palette: string[] = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA94D', '#A29BFE',
+    '#FD79A8', '#00B894', '#E17055', '#6C5CE7', '#FDCB6E'
+  ];
+  let hash: number = 0;
+  for (let i = 0; i < category.length; i++) {
+    hash = (hash * 31 + category.charCodeAt(i)) % 1000000;
+  }
+  return palette[hash % palette.length];
+}
+
 // ========== 添加账单弹窗 ==========
 @CustomDialog
 struct AddBillDialog {
@@ -57,11 +132,13 @@ struct AddBillDialog {
     builder: () => {}
   });
   @StorageLink('currentColorMode') currentColorMode: ConfigurationConstant.ColorMode = ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT;
+  // 当前账本的分类列表（由父组件传入）
+  categories: string[] = ['其他'];
   @State inputName: string = '';
   @State inputAmount: string = '';
   @State selectedType: '收入' | '支出' = '支出';
   @State selectedDate: Date = new Date();
-  @State selectedCategory: string = CATEGORIES[0];
+  @State selectedCategory: string = '其他';
   @State selectedSource: string = '现金';
   @State sourceList: string[] = ['现金', '微信', '支付宝', '银行卡'];
   @State inputTags: string = '';  // 标签输入框内容
@@ -116,6 +193,9 @@ struct AddBillDialog {
 
   // 在 aboutToAppear 中调用
   aboutToAppear() {
+    if (this.categories.length > 0) {
+      this.selectedCategory = this.categories[0];
+    }
     this.loadSources();
     this.loadTags();  // ✅ 新增
   }
@@ -202,12 +282,12 @@ struct AddBillDialog {
               .margin({ bottom: 8 })
 
             Flex({ wrap: FlexWrap.Wrap }) {
-              ForEach(CATEGORIES, (cat: string) => {
+              ForEach(this.categories, (cat: string) => {
                 Button(cat)
                   .type(ButtonType.Capsule)
-                  .backgroundColor(this.selectedCategory === cat ? CATEGORY_COLORS[cat] : $r('app.color.category_btn_bg'))
+                  .backgroundColor(this.selectedCategory === cat ? getCategoryColor(cat) : $r('app.color.category_btn_bg'))
                   .fontColor(this.selectedCategory === cat ? $r('app.color.text_white') : $r('app.color.text_primary'))
-                  .borderColor(this.selectedCategory === cat ? CATEGORY_COLORS[cat] : 'transparent')
+                  .borderColor(this.selectedCategory === cat ? getCategoryColor(cat) : 'transparent')
                   .borderWidth(1)
                   .padding({ left: 14, right: 14 })
                   .height(32)
@@ -457,16 +537,18 @@ struct EditBillDialog {
   paramAmount: string = '';
   paramType: '收入' | '支出' = '支出';
   paramDate: Date = new Date();
-  paramCategory: string = CATEGORIES[0];
+  paramCategory: string = '其他';
   paramSource: string = '现金';
   onUpdateBill: (id: number, name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[]) => void = () => {};
   paramTags: string[] = [];
+  // 当前账本的分类列表（由父组件传入）
+  categories: string[] = ['其他'];
 
   @State internalName: string = '';
   @State internalAmount: string = '';
   @State internalType: '收入' | '支出' = '支出';
   @State internalDate: Date = new Date();
-  @State internalCategory: string = CATEGORIES[0];
+  @State internalCategory: string = '其他';
   @State internalSource: string = '现金';
   @State sourceList: string[] = ['现金', '微信', '支付宝', '银行卡'];
   @State inputTags: string = '';
@@ -478,7 +560,14 @@ struct EditBillDialog {
     this.internalAmount = this.paramAmount;
     this.internalType = this.paramType;
     this.internalDate = this.paramDate;
-    this.internalCategory = this.paramCategory;
+    // 账单原分类若不在当前账本分类中，回退到第一个分类
+    if (this.categories.indexOf(this.paramCategory) !== -1) {
+      this.internalCategory = this.paramCategory;
+    } else if (this.categories.length > 0) {
+      this.internalCategory = this.categories[0];
+    } else {
+      this.internalCategory = '其他';
+    }
     this.internalSource = this.paramSource || '现金';
     this.selectedTags = this.paramTags ? [...this.paramTags] : [];
     this.loadSources();
@@ -608,12 +697,12 @@ struct EditBillDialog {
               .margin({ bottom: 8 })
 
             Flex({ wrap: FlexWrap.Wrap }) {
-              ForEach(CATEGORIES, (cat: string) => {
+              ForEach(this.categories, (cat: string) => {
                 Button(cat)
                   .type(ButtonType.Capsule)
-                  .backgroundColor(this.internalCategory === cat ? CATEGORY_COLORS[cat] : $r('app.color.category_btn_bg'))
+                  .backgroundColor(this.internalCategory === cat ? getCategoryColor(cat) : $r('app.color.category_btn_bg'))
                   .fontColor(this.internalCategory === cat ? $r('app.color.text_white') : $r('app.color.text_primary'))
-                  .borderColor(this.internalCategory === cat ? CATEGORY_COLORS[cat] : 'transparent')
+                  .borderColor(this.internalCategory === cat ? getCategoryColor(cat) : 'transparent')
                   .borderWidth(1)
                   .padding({ left: 14, right: 14 })
                   .height(32)
@@ -927,7 +1016,7 @@ struct SearchBillDialog {
                 .width(8)
                 .height(8)
                 .borderRadius(4)
-                .backgroundColor(CATEGORY_COLORS[item.category] || '#B2BEC3')
+                .backgroundColor(getCategoryColor(item.category))
                 .margin({ right: 12 })
 
                 Text(item.type)
@@ -1031,7 +1120,7 @@ struct BillDetailDialog {
             .width(8)
             .height(8)
             .borderRadius(4)
-            .backgroundColor(CATEGORY_COLORS[this.bill.category] || '#B2BEC3')
+            .backgroundColor(getCategoryColor(this.bill.category))
             .margin({ right: 6 })
           Text(this.bill.category)
             .fontSize(14)
@@ -1129,7 +1218,7 @@ struct DayDetailDialog {
               .width(6)
               .height(6)
               .borderRadius(3)
-              .backgroundColor(CATEGORY_COLORS[item.category] || '#B2BEC3')
+              .backgroundColor(getCategoryColor(item.category))
               .margin({ right: 10 })
 
               Text(item.category)
@@ -1245,7 +1334,7 @@ struct MultiDayDetailDialog {
                   .width(6)
                   .height(6)
                   .borderRadius(3)
-                  .backgroundColor(CATEGORY_COLORS[item.category] || '#B2BEC3')
+                  .backgroundColor(getCategoryColor(item.category))
                   .margin({ right: 10 })
 
                   Text(item.category)
@@ -1632,6 +1721,7 @@ export interface BillItem {
   category: string;
   source: string;
   tags?: string[];
+  ledgerId?: number;  // 所属账本，缺省视为默认账本
 }
 
 interface ParsedBillData {
@@ -1641,6 +1731,16 @@ interface ParsedBillData {
   name: string;
   typeStr: string;
   amount: number;
+}
+
+// 本应用导出 CSV 中的一行账单
+interface CsvBillRow {
+  date: number;
+  type: '收入' | '支出';
+  category: string;
+  name: string;
+  amount: number;
+  ledgerName: string;
 }
 
 interface ExpenseStat {
@@ -1699,6 +1799,7 @@ interface BackupData {
   exportTime: string;
   bills: BillItem[];
   assets: AssetCategory[];
+  ledgers?: LedgerItem[];  // 旧版本备份无此字段
 }
 
 interface DialogButton {
@@ -1777,11 +1878,17 @@ struct MonthPickerDialog {
   }
 }
 
+// ========== 账本切换弹层（原生半模态 bindSheet，构建器见 Index.LedgerSheetBuilder） ==========
+
 @Entry
 @Component
 struct Index {
-  @StorageLink('bills') bills: BillItem[] = [];
+  @StorageLink('bills') @Watch('onBillsChanged') bills: BillItem[] = [];
   @State currentTabIndex: number = 0;
+  // ---------- 多账本状态 ----------
+  @State ledgers: LedgerItem[] = [];
+  @State currentLedgerId: number = DEFAULT_LEDGER_ID;
+  @State ledgerBills: BillItem[] = [];  // 当前账本过滤后的账单（供日历 Tab 绑定）
   @State currentYear: number = new Date().getFullYear();
   @State currentMonth: number = new Date().getMonth() + 1;
   @State billViewYear: number = new Date().getFullYear();
@@ -1799,7 +1906,6 @@ struct Index {
   @State reminderHour: number = 20;
   @State reminderMinute: number = 30;
   @State reminderDays: number[] = [1, 2, 3, 4, 5, 6, 7];
-  @State currencySymbol: string = '¥';
   @StorageLink('currentColorMode')
   @Watch('onColorModeChanged')
   currentColorMode: ConfigurationConstant.ColorMode = ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT;
@@ -1810,6 +1916,8 @@ struct Index {
   @State pressedBillId: number = -1;
   @State pressedFunc: string = '';
   @State pressedCard: string = '';
+  // 账本切换半模态弹层显隐
+  @State showLedgerSheet: boolean = false;
 
   private dialogController: CustomDialogController | null = null;
   private editDialogController: CustomDialogController | null = null;
@@ -1843,7 +1951,9 @@ struct Index {
     duration: 280,
     curve: AnimationConfig.SPRING_SOFT,
   };
+  // 账本切换弹窗：原生底部上滑动画（短时长）
   private lastRefreshFlag: number = 0;
+  private lastLedgerRefreshFlag: number = 0;
 
 
   // 从 Preferences 加载账单数据
@@ -1885,6 +1995,200 @@ struct Index {
     }
   }
 
+  // ---------- 多账本：数据初始化 ----------
+  async initLedgerData(): Promise<void> {
+    await this.loadBillsFromPreferences();
+    await this.ensureLedgerMigration();
+    await this.loadLedgerState();
+    this.updateLedgerBills();
+    await this.loadBudget();
+  }
+
+  // 账本数据迁移（幂等）：初始化默认账本 / 旧账单补 ledgerId / 旧预算键加前缀
+  async ensureLedgerMigration(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      if (!context) {
+        return;
+      }
+      const prefs = await dataPreferences.getPreferences(context, 'bill_data');
+
+      // 1. 账本列表初始化：确保存在默认账本
+      const ledgersData = await prefs.get('ledgers_key', '') as string;
+      let ledgers: LedgerItem[] = [];
+      if (ledgersData) {
+        ledgers = JSON.parse(ledgersData) as LedgerItem[];
+      }
+      const hasDefault = ledgers.some((item: LedgerItem) => item.isDefault);
+      if (!hasDefault) {
+        const defaultLedger: LedgerItem = {
+          id: DEFAULT_LEDGER_ID,
+          name: '默认账本',
+          icon: 'book',
+          color: '#45B7D1',
+          categories: [...CATEGORIES],
+          createdAt: Date.now(),
+          isDefault: true
+        };
+        ledgers = [defaultLedger, ...ledgers];
+        await prefs.put('ledgers_key', JSON.stringify(ledgers));
+      }
+
+      // 2. 旧账单补 ledgerId
+      let billsChanged = false;
+      this.bills.forEach((item: BillItem) => {
+        if (item.ledgerId === undefined) {
+          item.ledgerId = DEFAULT_LEDGER_ID;
+          billsChanged = true;
+        }
+      });
+      if (billsChanged) {
+        await prefs.put('bills_key', JSON.stringify(this.bills));
+      }
+
+      // 3. 旧预算键迁移：'YYYY-MM' -> '1:YYYY-MM'
+      const budgetData = await prefs.get('budget', '') as string;
+      if (budgetData) {
+        const parsed = JSON.parse(budgetData) as Record<string, number>;
+        const migrated: Record<string, number> = {};
+        let changed = false;
+        Object.keys(parsed).forEach((key: string) => {
+          if (key.indexOf(':') === -1) {
+            changed = true;
+            migrated[`${DEFAULT_LEDGER_ID}:${key}`] = parsed[key];
+          } else {
+            migrated[key] = parsed[key];
+          }
+        });
+        if (changed) {
+          await prefs.put('budget', JSON.stringify(migrated));
+        }
+      }
+      await prefs.flush();
+    } catch (e) {
+      console.error('账本数据迁移失败: ' + JSON.stringify(e));
+    }
+  }
+
+  // 加载账本列表与当前选中账本
+  async loadLedgerState(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      if (!context) {
+        return;
+      }
+      const prefs = await dataPreferences.getPreferences(context, 'bill_data');
+      const ledgersData = await prefs.get('ledgers_key', '[]') as string;
+      const parsed = JSON.parse(ledgersData) as LedgerItem[];
+      if (parsed.length > 0) {
+        this.ledgers = parsed;
+      }
+      const currentIdStr = await prefs.get('current_ledger_id', '') as string;
+      let targetId: number = DEFAULT_LEDGER_ID;
+      if (currentIdStr) {
+        const id = Number(currentIdStr);
+        if (!isNaN(id) && this.ledgers.some((item: LedgerItem) => item.id === id)) {
+          targetId = id;
+        }
+      }
+      if (!this.ledgers.some((item: LedgerItem) => item.id === targetId)) {
+        targetId = DEFAULT_LEDGER_ID;
+      }
+      this.currentLedgerId = targetId;
+    } catch (e) {
+      console.error('加载账本状态失败: ' + JSON.stringify(e));
+    }
+  }
+
+  async saveCurrentLedgerId(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      if (!context) {
+        return;
+      }
+      const prefs = await dataPreferences.getPreferences(context, 'bill_data');
+      await prefs.put('current_ledger_id', this.currentLedgerId.toString());
+      await prefs.flush();
+    } catch (e) {
+      console.error('保存当前账本失败: ' + JSON.stringify(e));
+    }
+  }
+
+  getCurrentLedger(): LedgerItem {
+    const found = this.ledgers.find((item: LedgerItem) => item.id === this.currentLedgerId);
+    if (found !== undefined) {
+      return found;
+    }
+    const fallback: LedgerItem = {
+      id: DEFAULT_LEDGER_ID,
+      name: '默认账本',
+      icon: 'book',
+      color: '#45B7D1',
+      categories: [...CATEGORIES],
+      createdAt: 0,
+      isDefault: true
+    };
+    return fallback;
+  }
+
+  getCurrentLedgerCategories(): string[] {
+    const ledger = this.getCurrentLedger();
+    if (ledger.categories.length > 0) {
+      return ledger.categories;
+    }
+    return [...CATEGORIES];
+  }
+
+  getLedgerCategoriesById(id: number): string[] {
+    const found = this.ledgers.find((item: LedgerItem) => item.id === id);
+    if (found !== undefined && found.categories.length > 0) {
+      return found.categories;
+    }
+    return [...CATEGORIES];
+  }
+
+  getLedgerNameById(id: number | undefined): string {
+    const lid = id ?? DEFAULT_LEDGER_ID;
+    const found = this.ledgers.find((item: LedgerItem) => item.id === lid);
+    if (found !== undefined) {
+      return found.name;
+    }
+    return '默认账本';
+  }
+
+  // 重算当前账本的账单集合
+  updateLedgerBills(): void {
+    this.ledgerBills = this.bills.filter((item: BillItem) =>
+      (item.ledgerId ?? DEFAULT_LEDGER_ID) === this.currentLedgerId);
+  }
+
+  onBillsChanged(): void {
+    this.updateLedgerBills();
+  }
+
+  switchLedger(id: number): void {
+    if (id === this.currentLedgerId) {
+      return;
+    }
+    animateTo({ curve: AnimationConfig.SPRING_SOFT }, () => {
+      this.currentLedgerId = id;
+    });
+    this.saveCurrentLedgerId();
+    if (this.billFilterCategory !== '全部' &&
+      this.getCurrentLedgerCategories().indexOf(this.billFilterCategory) === -1) {
+      this.billFilterCategory = '全部';
+    }
+    this.updateLedgerBills();
+    this.loadBudget();
+    this.refreshKey++;
+    this.updateChartIfNeeded();
+  }
+
+  openLedgerSwitchDialog() {
+    // 使用原生半模态弹层（底部上滑动画）
+    this.showLedgerSheet = true;
+  }
+
   // 加载预算
   async loadBudget() {
     try {
@@ -1897,9 +2201,15 @@ struct Index {
       const data = await prefs.get('budget', '') as string;
       if (data) {
         const parsed = JSON.parse(data) as Record<string, number>;
-        const key = `${this.currentYear}-${String(this.currentMonth).padStart(2, '0')}`;
-        if (parsed[key] !== undefined && parsed[key] > 0) {
-          this.budget = parsed[key];
+        const ym = `${this.currentYear}-${String(this.currentMonth).padStart(2, '0')}`;
+        const key = `${this.currentLedgerId}:${ym}`;
+        const legacyKey = `${ym}`;
+        let value: number | undefined = parsed[key];
+        if (value === undefined && this.currentLedgerId === DEFAULT_LEDGER_ID) {
+          value = parsed[legacyKey];
+        }
+        if (value !== undefined && value > 0) {
+          this.budget = value;
           this.hasBudget = true;
         } else {
           this.budget = 0;
@@ -2107,7 +2417,7 @@ struct Index {
       if (data) {
         parsed = JSON.parse(data);
       }
-      const key = `${this.currentYear}-${String(this.currentMonth).padStart(2, '0')}`;
+      const key = `${this.currentLedgerId}:${this.currentYear}-${String(this.currentMonth).padStart(2, '0')}`;
       parsed[key] = amount;
       await prefs.put('budget', JSON.stringify(parsed));
       await prefs.flush();
@@ -2129,21 +2439,16 @@ struct Index {
       console.error('❌ PersistentStorage 初始化失败: ' + JSON.stringify(e));
     }
 
+    // ✅ 账本/账单/预算数据初始化（含旧数据迁移到默认账本）
     try {
-      this.loadBillsFromPreferences();
+      this.initLedgerData().then(() => {
+        // 迁移旧账单字段（source/tags 等）
+        this.migrateOldBills();
+        this.migrateOldBillsForTags();
+      });
     } catch (e) {
-      console.error('❌ loadBillsFromPreferences 失败: ' + JSON.stringify(e));
+      console.error('❌ initLedgerData 失败: ' + JSON.stringify(e));
     }
-
-    try {
-      this.loadBudget();
-    } catch (e) {
-      console.error('❌ loadBudget 失败: ' + JSON.stringify(e));
-    }
-
-    // 迁移旧账单
-    this.migrateOldBills();
-    this.migrateOldBillsForTags();
 
     try {
       this.canvasCtx = new CanvasRenderingContext2D();
@@ -2151,24 +2456,6 @@ struct Index {
       this.yearCanvasCtx = new CanvasRenderingContext2D();
     } catch (e) {
       console.error('❌ Canvas 初始化失败: ' + JSON.stringify(e));
-    }
-
-    try {
-      this.dialogController = new CustomDialogController({
-        builder: AddBillDialog({
-          onAddBill: (name, amount, type, date, category, source, tags) => {
-            this.addBill(name, amount, type, date, category, source, tags);
-          }
-        }),
-        autoCancel: true,
-        alignment: DialogAlignment.Center,
-        customStyle: true,
-        maskColor: 'rgba(0, 0, 0, 0.4)',
-        openAnimation: this.dialogOpenAnimation,
-        closeAnimation: this.dialogCloseAnimation
-      });
-    } catch (e) {
-      console.error('❌ dialogController 初始化失败: ' + JSON.stringify(e));
     }
 
     try {
@@ -2225,14 +2512,16 @@ struct Index {
   getFilteredBills(): BillItem[] {
     return this.bills.filter(item => {
       const d = new Date(item.date);
-      return d.getFullYear() === this.currentYear && (d.getMonth() + 1) === this.currentMonth;
+      return (item.ledgerId ?? DEFAULT_LEDGER_ID) === this.currentLedgerId &&
+        d.getFullYear() === this.currentYear && (d.getMonth() + 1) === this.currentMonth;
     });
   }
 
   getBillViewBills(): BillItem[] {
     let filtered = this.bills.filter(item => {
       const d = new Date(item.date);
-      return d.getFullYear() === this.billViewYear && (d.getMonth() + 1) === this.billViewMonth;
+      return (item.ledgerId ?? DEFAULT_LEDGER_ID) === this.currentLedgerId &&
+        d.getFullYear() === this.billViewYear && (d.getMonth() + 1) === this.billViewMonth;
     });
 
     // 按分类筛选
@@ -2299,7 +2588,8 @@ struct Index {
     const dayBills: BillItem[] = [];
     this.bills.forEach((bill: BillItem) => {
       const d = new Date(bill.date);
-      if (d.getFullYear() === year &&
+      if ((bill.ledgerId ?? DEFAULT_LEDGER_ID) === this.currentLedgerId &&
+        d.getFullYear() === year &&
         (d.getMonth() + 1) === month &&
         uniqueDays.indexOf(d.getDate()) !== -1 &&
         bill.type === '支出') {
@@ -2388,7 +2678,8 @@ struct Index {
 
     for (let bill of this.bills) {
       const d = new Date(bill.date);
-      if (d.getFullYear() === year && (d.getMonth() + 1) === month && bill.type === '支出') {
+      if ((bill.ledgerId ?? DEFAULT_LEDGER_ID) === this.currentLedgerId &&
+        d.getFullYear() === year && (d.getMonth() + 1) === month && bill.type === '支出') {
         const day = d.getDate();
         dailyData[day - 1] += bill.amount;
       }
@@ -2405,7 +2696,8 @@ struct Index {
 
     this.bills.forEach((bill: BillItem) => {
       const d = new Date(bill.date);
-      if (d.getFullYear() === this.statYear && bill.type === '支出') {
+      if ((bill.ledgerId ?? DEFAULT_LEDGER_ID) === this.currentLedgerId &&
+        d.getFullYear() === this.statYear && bill.type === '支出') {
         const month = d.getMonth();
         monthlyData[month] += bill.amount;
       }
@@ -2449,7 +2741,8 @@ struct Index {
 
     const dayBills = this.bills.filter(bill => {
       const d = new Date(bill.date);
-      return d.getFullYear() === year &&
+      return (bill.ledgerId ?? DEFAULT_LEDGER_ID) === this.currentLedgerId &&
+        d.getFullYear() === year &&
         (d.getMonth() + 1) === month &&
         d.getDate() === day &&
         bill.type === '支出';
@@ -2566,7 +2859,8 @@ struct Index {
       date: date.getTime(),
       category: category || '其他',
       source: source || '现金',
-      tags: tags || []  // ✅ 使用传入的 tags
+      tags: tags || [],  // ✅ 使用传入的 tags
+      ledgerId: this.currentLedgerId  // 记入当前选中账本
     };
     animateTo({ curve: AnimationConfig.SPRING_SOFT }, () => {
       this.bills = [newBill, ...this.bills];
@@ -2610,7 +2904,8 @@ struct Index {
       date: date.getTime(),
       category: category || '其他',
       source: source || '现金',
-      tags: tags || []  // ✅ 更新标签
+      tags: tags || [],  // ✅ 更新标签
+      ledgerId: oldBill.ledgerId  // 保留原账本归属
     };
 
     animateTo({ curve: AnimationConfig.SPRING_SOFT }, () => {
@@ -2818,20 +3113,41 @@ struct Index {
   }
 
   async publishBookkeepingReminder(): Promise<boolean> {
+    if (this.reminderDays.length === 0) {
+      promptAction.showToast({ message: '请至少选择一个提醒日', duration: 2000 });
+      return false;
+    }
     try {
       // 重新发布前先取消旧提醒，避免重复提醒
       await reminderAgentManager.cancelAllReminders();
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const bundleName = context && context.abilityInfo ? context.abilityInfo.bundleName : 'com.bcq.myapplication';
-      const alarm: reminderAgentManager.ReminderRequestAlarm = {
-        reminderType: reminderAgentManager.ReminderType.REMINDER_TYPE_ALARM,
-        hour: this.reminderHour,
-        minute: this.reminderMinute,
+      // 计算从现在起最近的一次提醒时间（符合所选星期）
+      const candidate = new Date();
+      candidate.setHours(this.reminderHour, this.reminderMinute, 0, 0);
+      if (candidate.getTime() <= Date.now()) {
+        candidate.setDate(candidate.getDate() + 1);
+      }
+      while (this.reminderDays.indexOf(candidate.getDay() === 0 ? 7 : candidate.getDay()) === -1) {
+        candidate.setDate(candidate.getDate() + 1);
+      }
+      // 日历类型提醒：以通知横幅/通知卡片形式提醒（非闹钟样式），支持每周重复
+      const calendar: reminderAgentManager.ReminderRequestCalendar = {
+        reminderType: reminderAgentManager.ReminderType.REMINDER_TYPE_CALENDAR,
+        dateTime: {
+          year: candidate.getFullYear(),
+          month: candidate.getMonth() + 1,
+          day: candidate.getDate(),
+          hour: this.reminderHour,
+          minute: this.reminderMinute,
+          second: 0
+        },
         daysOfWeek: [...this.reminderDays],
         title: '记账提醒',
         content: '别忘了记录今天的账单哦～',
         notificationId: 1001,
-        slotType: notificationManager.SlotType.CONTENT_INFORMATION,
+        slotType: notificationManager.SlotType.SERVICE_INFORMATION,
+        ringDuration: 0,
         actionButton: [{
           title: '知道了',
           type: reminderAgentManager.ActionButtonType.ACTION_BUTTON_TYPE_CLOSE
@@ -2841,7 +3157,7 @@ struct Index {
           abilityName: 'EntryAbility'
         }
       };
-      const reminderId = await reminderAgentManager.publishReminder(alarm);
+      const reminderId = await reminderAgentManager.publishReminder(calendar);
       console.info(`✅ 记账提醒发布成功，reminderId: ${reminderId}`);
       return true;
     } catch (e) {
@@ -2905,24 +3221,6 @@ struct Index {
     this.reminderWeekDialogController.open();
   }
 
-  // 货币选择器
-  showCurrencyPicker() {
-    const currencies: string[] = ['¥', '$', '€', '£', '₩', '¥'];
-    const buttons: DialogButton[] = currencies.map((c: string): DialogButton => ({
-      text: c,
-      color: '#666666'
-    }));
-    promptAction.showDialog({
-      title: '选择默认货币',
-      buttons: buttons
-    }).then((result: DialogResult) => {
-      if (result.index !== undefined && result.index < currencies.length) {
-        this.currencySymbol = currencies[result.index] || '¥';
-        promptAction.showToast({ message: '货币已切换为 ' + this.currencySymbol, duration: 1500 });
-      }
-    });
-  }
-
   // 关于应用弹窗
   showAboutDialog() {
     promptAction.showDialog({
@@ -2934,9 +3232,12 @@ struct Index {
     });
   }
 
-  // 分类管理（预留，可跳转到分类编辑页）
+  // 分类管理（进入当前账本的分类管理页）
   openCategoryManager() {
-    promptAction.showToast({ message: '分类管理功能开发中', duration: 1500 });
+    router.pushUrl({
+      url: 'pages/CategoryManagePage',
+      params: { ledgerId: this.currentLedgerId } as CategoryManageParams
+    });
   }
 
   private async exportBills(type: 'currentMonth' | 'all') {
@@ -2955,14 +3256,16 @@ struct Index {
 
       billsToExport.sort((a, b) => a.date - b.date);
 
-      let csvContent = '\uFEFF日期,类型,分类,用途,金额\n';
+      let csvContent = '\uFEFF日期,类型,分类,用途,金额,账本\n';
       for (let item of billsToExport) {
         const d = new Date(item.date);
         const dateStr = d.getFullYear() + '-' +
           String(d.getMonth() + 1).padStart(2, '0') + '-' +
           String(d.getDate()).padStart(2, '0');
         const typeStr = item.type === '收入' ? '收入' : '支出';
-        csvContent += dateStr + ',' + typeStr + ',' + item.category + ',' + item.name + ',' + item.amount.toFixed(2) + '\n';
+        csvContent += dateStr + ',' + typeStr + ',' + escapeCsvField(item.category) + ',' +
+          escapeCsvField(item.name) + ',' + item.amount.toFixed(2) + ',' +
+          escapeCsvField(this.getLedgerNameById(item.ledgerId)) + '\n';
       }
 
       const context = getContext(this) as common.UIAbilityContext;
@@ -3004,12 +3307,14 @@ struct Index {
       const prefs = await dataPreferences.getPreferences(context, 'bill_data');
       const billsData = await prefs.get('bills_key', '[]') as string;
       const assetData = await prefs.get('asset_categories', '[]') as string;
+      const ledgersData = await prefs.get('ledgers_key', '[]') as string;
 
       const backupData: BackupData = {
-        version: '1.0',
+        version: '1.1',
         exportTime: new Date().toISOString(),
         bills: JSON.parse(billsData),
-        assets: JSON.parse(assetData)
+        assets: JSON.parse(assetData),
+        ledgers: JSON.parse(ledgersData) as LedgerItem[]
       };
 
       const jsonStr: string = JSON.stringify(backupData, null, 2);
@@ -3070,14 +3375,6 @@ struct Index {
       const decoder: util.TextDecoder = new util.TextDecoder('utf-8');
       const content: string = decoder.decode(new Uint8Array(buffer));
 
-      // 定义备份数据的接口（不允许对象字面量作为类型声明）
-      interface BackupData {
-        version: string;
-        exportTime: string;
-        bills: BillItem[];
-        assets: AssetCategory[];
-      }
-
       const backupData: BackupData = JSON.parse(content);
 
       // 校验数据
@@ -3101,15 +3398,19 @@ struct Index {
         return;
       }
 
-      // 写入数据
+      // 写入数据（旧版本备份无 ledgers 字段时保留现有账本配置）
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const prefs = await dataPreferences.getPreferences(context, 'bill_data');
       await prefs.put('bills_key', JSON.stringify(backupData.bills));
       await prefs.put('asset_categories', JSON.stringify(backupData.assets));
+      if (backupData.ledgers !== undefined && Array.isArray(backupData.ledgers) &&
+        backupData.ledgers.length > 0) {
+        await prefs.put('ledgers_key', JSON.stringify(backupData.ledgers));
+      }
       await prefs.flush();
 
-      // 重新加载数据
-      await this.loadBillsFromPreferences();
+      // 重新加载数据（含账本迁移：导入账单缺 ledgerId 时归入默认账本）
+      await this.initLedgerData();
       await this.loadTotalAsset();
       this.refreshKey++;
 
@@ -3139,7 +3440,7 @@ struct Index {
     try {
       const documentPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker();
       const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
-      options.fileSuffixFilters = ['xlsx', 'xls'];
+      options.fileSuffixFilters = ['csv', 'xlsx', 'xls'];
       const uris: Array<string> = await documentPicker.select(options);
 
       if (!uris || uris.length === 0) {
@@ -3156,17 +3457,69 @@ struct Index {
       setTimeout(async () => {
         try {
           const uri: string = uris[0];
+          const isCsv: boolean = uri.toLowerCase().endsWith('.csv');
           const file: fs.File = fs.openSync(uri, fs.OpenMode.READ_ONLY);
           const stat: fs.Stat = fs.statSync(file.fd);
           const fileContent: ArrayBuffer = new ArrayBuffer(stat.size);
           fs.readSync(file.fd, fileContent);
           fs.closeSync(file);
 
-          const task = taskpool.execute(parseExcelInWorker, fileContent);
-          const parsedData = await task as Array<ParsedBillData>;
-
           let importedCount: number = 0;
-          for (const item of parsedData) {
+
+          if (isCsv) {
+            // 本应用导出的 CSV 账单（格式：日期,类型,分类,用途,金额,账本）
+            const decoder: util.TextDecoder = new util.TextDecoder('utf-8');
+            const content: string = decoder.decode(new Uint8Array(fileContent));
+            const rows: CsvBillRow[] = this.parseOwnCsvBills(content);
+            if (rows.length === 0) {
+              throw new Error('未识别到有效的账单数据，请确认选择的是本应用导出的 CSV 文件');
+            }
+            for (const row of rows) {
+              const exists: boolean = this.bills.some((bill: BillItem) =>
+                Math.abs(bill.date - row.date) < 60000 &&
+                bill.amount === row.amount &&
+                bill.name === row.name);
+              if (exists) {
+                continue;
+              }
+
+              // 按账本名映射账本，找不到时归入默认账本
+              let ledgerId: number = DEFAULT_LEDGER_ID;
+              if (row.ledgerName !== '') {
+                const matched = this.ledgers.find((lg: LedgerItem) => lg.name === row.ledgerName);
+                if (matched !== undefined) {
+                  ledgerId = matched.id;
+                }
+              }
+
+              // 分类不在目标账本分类中时回退
+              const ledgerCats: string[] = this.getLedgerCategoriesById(ledgerId);
+              let category: string = row.category;
+              if (ledgerCats.indexOf(category) === -1) {
+                if (ledgerCats.indexOf('其他') !== -1) {
+                  category = '其他';
+                } else if (ledgerCats.length > 0) {
+                  category = ledgerCats[0];
+                }
+              }
+
+              this.bills.push({
+                id: Date.now() + Math.random() * 1000 + importedCount,
+                name: row.name,
+                amount: row.amount,
+                type: row.type,
+                date: row.date,
+                category: category,
+                source: 'CSV导入',
+                ledgerId: ledgerId
+              });
+              importedCount++;
+            }
+          } else {
+            const task = taskpool.execute(parseExcelInWorker, fileContent);
+            const parsedData = await task as Array<ParsedBillData>;
+
+            for (const item of parsedData) {
             const date: Date = new Date(item.timeStr);
             if (isNaN(date.getTime())) continue;
 
@@ -3191,11 +3544,21 @@ struct Index {
             });
 
             if (!exists) {
-              const category: string = this.guessCategory(
+              const guessed: string = this.guessCategory(
                 item.name || '',
                 item.transType,
                 item.counterparty || ''
               );
+              // 猜测分类不在当前账本分类中时回退
+              const ledgerCats: string[] = this.getCurrentLedgerCategories();
+              let category: string = guessed;
+              if (ledgerCats.indexOf(guessed) === -1) {
+                if (ledgerCats.indexOf('其他') !== -1) {
+                  category = '其他';
+                } else if (ledgerCats.length > 0) {
+                  category = ledgerCats[0];
+                }
+              }
               this.bills.push({
                 id: Date.now() + Math.random() * 1000 + importedCount,
                 name: finalName,
@@ -3203,9 +3566,11 @@ struct Index {
                 type: finalType,
                 date: date.getTime(),
                 category: category,
-                source: '微信'
+                source: '微信',
+                ledgerId: this.currentLedgerId
               });
               importedCount++;
+            }
             }
           }
 
@@ -3251,6 +3616,48 @@ struct Index {
       console.error('导入失败: ' + err.message);
       promptAction.showToast({ message: '导入失败: ' + err.message, duration: 2000 });
     }
+  }
+
+  // 解析本应用导出的 CSV 账单内容（格式：日期,类型,分类,用途,金额,账本）
+  private parseOwnCsvBills(content: string): CsvBillRow[] {
+    const rows: CsvBillRow[] = [];
+    let text: string = content;
+    if (text.length > 0 && text.charCodeAt(0) === 0xFEFF) {
+      text = text.substring(1);
+    }
+    const lines: string[] = text.split('\n');
+    for (let i: number = 0; i < lines.length; i++) {
+      const line: string = lines[i].trim();
+      if (line.length === 0) {
+        continue;
+      }
+      const fields: string[] = splitCsvLine(line);
+      if (fields.length < 5) {
+        continue;
+      }
+      if (fields[0] === '日期') {
+        continue;
+      }
+      const date: Date = new Date(fields[0]);
+      if (isNaN(date.getTime())) {
+        continue;
+      }
+      const amount: number = parseFloat(fields[4]);
+      if (isNaN(amount) || amount === 0) {
+        continue;
+      }
+      const type: '收入' | '支出' = fields[1] === '收入' ? '收入' : '支出';
+      const row: CsvBillRow = {
+        date: date.getTime(),
+        type: type,
+        category: fields[2],
+        name: fields[3],
+        amount: Math.abs(amount),
+        ledgerName: fields.length > 5 ? fields[5] : ''
+      };
+      rows.push(row);
+    }
+    return rows;
   }
 
   // 显示删除确认弹窗
@@ -3386,6 +3793,21 @@ struct Index {
 
   // ---------- 打开弹窗 ----------
   openAddDialog() {
+    // 每次打开重新构建，使用当前账本的分类列表
+    this.dialogController = new CustomDialogController({
+      builder: AddBillDialog({
+        categories: this.getCurrentLedgerCategories(),
+        onAddBill: (name, amount, type, date, category, source, tags) => {
+          this.addBill(name, amount, type, date, category, source, tags);
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      customStyle: true,
+      maskColor: 'rgba(0, 0, 0, 0.4)',
+      openAnimation: this.dialogOpenAnimation,
+      closeAnimation: this.dialogCloseAnimation
+    });
     if (this.dialogController) {
       this.dialogController.open();
     }
@@ -3402,6 +3824,7 @@ struct Index {
         paramCategory: bill.category || '其他',
         paramSource: bill.source || '现金',
         paramTags: bill.tags || [],
+        categories: this.getCurrentLedgerCategories(),
         onUpdateBill: (id, name, amount, type, date, category, source) => {
           this.updateBill(id, name, amount, type, date, category, source);
         }
@@ -3854,9 +4277,25 @@ struct Index {
     const refreshFlag = AppStorage.get<number>('shouldRefreshBills') || 0;
     if (refreshFlag !== this.lastRefreshFlag) {
       this.lastRefreshFlag = refreshFlag;
-      console.info('📌 检测到标签变更，刷新账单数据');
+      console.info('📌 检测到账单变更，刷新账单数据');
       this.loadBillsFromPreferences().then(() => {
         // 强制刷新列表
+        this.refreshKey++;
+      });
+    }
+
+    // 账本/分类变更信号（来自账本管理页/分类管理页）
+    const ledgerRefreshFlag = AppStorage.get<number>('shouldRefreshLedgers') || 0;
+    if (ledgerRefreshFlag !== this.lastLedgerRefreshFlag) {
+      this.lastLedgerRefreshFlag = ledgerRefreshFlag;
+      console.info('📌 检测到账本变更，刷新账本数据');
+      this.loadLedgerState().then(() => {
+        if (this.billFilterCategory !== '全部' &&
+          this.getCurrentLedgerCategories().indexOf(this.billFilterCategory) === -1) {
+          this.billFilterCategory = '全部';
+        }
+        this.updateLedgerBills();
+        this.loadBudget();
         this.refreshKey++;
       });
     }
@@ -3877,6 +4316,118 @@ struct Index {
     .justifyContent(FlexAlign.Center)
   }
 
+  // ---------- 账本切换入口 ----------
+  @Builder
+  LedgerChip() {
+    Row() {
+      SymbolGlyph(getLedgerIconResource(this.getCurrentLedger().icon))
+        .fontSize(12)
+        .fontColor([$r('app.color.brand_blue')])
+      Text(this.getCurrentLedger().name)
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.brand_blue'))
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .constraintSize({ maxWidth: 72 })
+        .margin({ left: 3 })
+      SymbolGlyph($r('sys.symbol.chevron_down'))
+        .fontSize(10)
+        .fontColor([$r('app.color.brand_blue')])
+        .margin({ left: 2 })
+    }
+    .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+    .backgroundColor($r('app.color.category_btn_bg'))
+    .borderRadius(12)
+    .border({ width: 1, color: $r('app.color.border_color') })
+    .onClick(() => { this.openLedgerSwitchDialog(); })
+  }
+
+  // ---------- 账本切换弹层（原生半模态内容） ----------
+  @Builder
+  LedgerSheetBuilder() {
+    Column() {
+      Text('选择账本')
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+        .margin({ top: 24, bottom: 16 })
+
+      Scroll() {
+        Column() {
+          ForEach(this.ledgers, (item: LedgerItem) => {
+            Row() {
+              Column() {
+                SymbolGlyph(getLedgerIconResource(item.icon))
+                  .fontSize(22)
+                  .fontColor([item.color])
+              }
+              .width(40)
+              .height(40)
+              .borderRadius(20)
+              .backgroundColor(item.color + '1A')
+              .justifyContent(FlexAlign.Center)
+              .alignItems(HorizontalAlign.Center)
+
+              Text(item.name)
+                .fontSize(16)
+                .fontWeight(this.currentLedgerId === item.id ? FontWeight.Medium : FontWeight.Normal)
+                .fontColor($r('app.color.text_primary'))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .layoutWeight(1)
+                .margin({ left: 12 })
+
+              if (this.currentLedgerId === item.id) {
+                SymbolGlyph($r('sys.symbol.checkmark'))
+                  .fontSize(18)
+                  .fontColor([$r('app.color.brand_blue')])
+              }
+            }
+            .width('100%')
+            .padding({ top: 14, bottom: 14, left: 16, right: 16 })
+            .backgroundColor($r('app.color.card_bg'))
+            .borderRadius(12)
+            .margin({ bottom: 12 })
+            .onClick(() => {
+              this.showLedgerSheet = false;
+              this.switchLedger(item.id);
+            })
+          }, (item: LedgerItem) => item.id.toString())
+        }
+        .width('100%')
+      }
+      .layoutWeight(1)
+      .edgeEffect(EdgeEffect.Spring)
+      .scrollBar(BarState.Off)
+
+      Divider()
+        .color($r('app.color.border_color'))
+        .margin({ top: 0, bottom: 10 })
+
+      Row() {
+        Button('管理账本')
+          .backgroundColor($r('app.color.card_bg'))
+          .fontColor($r('app.color.brand_blue'))
+          .borderRadius(20)
+          .border({ width: 1, color: $r('app.color.border_color') })
+          .height(40)
+          .layoutWeight(1)
+          .fontSize(15)
+          .onClick(() => {
+            this.showLedgerSheet = false;
+            router.pushUrl({ url: 'pages/LedgerManagePage' });
+          })
+      }
+      .width('100%')
+      .padding({ bottom: 24 })
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 16, right: 16 })
+  }
+
+  // ---------- 功能项构建器 ----------
   @Builder
   FunctionItem(icon: Resource, label: string, action: () => void) {
     Column() {
@@ -3927,6 +4478,10 @@ struct Index {
                 .fontSize(28)
                 .fontWeight(FontWeight.Bold)
                 .fontColor($r('app.color.text_primary'))
+              Column() {
+                this.LedgerChip()
+              }
+              .margin({ left: 10 })
               Blank()
               Image($r('sys.media.ohos_ic_public_more'))
                 .width(28)
@@ -3938,7 +4493,7 @@ struct Index {
                     action: () => { this.showExportDialog(); }
                   },
                   {
-                    value: '导入微信账单(beta)',
+                    value: '导入账单(CSV/微信Excel)',
                     action: () => {
                       this.importWechatBills();
                     }
@@ -4111,7 +4666,7 @@ struct Index {
                           .width(8)
                           .height(8)
                           .borderRadius(4)
-                          .backgroundColor(CATEGORY_COLORS[item.category] || '#B2BEC3')
+                          .backgroundColor(getCategoryColor(item.category))
                           .margin({ right: 12 })
 
                           Text(item.type)
@@ -4486,6 +5041,7 @@ struct Index {
 
                 Row()
                   .width('100%')
+
                   .height(80)
               }
               .width('100%')
@@ -4510,7 +5066,7 @@ struct Index {
         // ========== 日历页（Tab 2）==========
         // ============================================
         TabContent() {
-          CalendarTab({ bills: $bills })
+            CalendarTab({ bills: $ledgerBills })
         }
         .tabBar(this.TabBuilder('日历', 2))
         // ============================================
@@ -4530,6 +5086,10 @@ struct Index {
                 .fontSize(28)
                 .fontWeight(FontWeight.Bold)
                 .fontColor($r('app.color.text_primary'))
+              Column() {
+                this.LedgerChip()
+              }
+              .margin({ left: 10 })
               Blank()
               Text('共 ' + this.getBillViewBills().length + ' 笔')
                 .fontSize(14)
@@ -4551,7 +5111,7 @@ struct Index {
               SymbolGlyph($r('sys.symbol.chevron_left'))
                 .fontSize(22)
                 .fontColor([$r('app.color.brand_blue')])
-                .onClick(() => { this.goBillPrevMonth(); })
+                .onClick(() => { this.goPreviousMonth(); })
                 .margin({ right: 12 })
 
               Text(`${this.billViewYear}年${this.billViewMonth}月`)
@@ -4602,7 +5162,7 @@ struct Index {
                   .flexShrink(0)
 
                 // 2. 分类列表
-                ForEach(CATEGORIES, (cat: string) => {
+                ForEach(this.getCurrentLedgerCategories(), (cat: string) => {
                   Text(cat)
                     .fontSize(14)
                     .fontColor(this.billFilterCategory === cat ? $r('app.color.brand_blue') : $r('app.color.text_secondary'))
@@ -4662,7 +5222,7 @@ struct Index {
                           .width(8)
                           .height(8)
                           .borderRadius(4)
-                          .backgroundColor(CATEGORY_COLORS[item.category] || '#B2BEC3')
+                          .backgroundColor(getCategoryColor(item.category))
                           .margin({ right: 12 })
 
                           Text(item.type)
@@ -4993,7 +5553,7 @@ struct Index {
                   .width('100%')
                 }
                 .width('100%')
-                .padding({ top: 16, bottom: 16 })
+                .padding({ left: 12, right: 12, top: 16, bottom: 16 })
                 .backgroundColor($r('app.color.card_bg'))
                 .borderRadius(16)
                 .shadow({
@@ -5016,6 +5576,27 @@ struct Index {
                   }
                   .width('100%')
                   .margin({ bottom: 14 })    // ✅ 改为 14，与选项间距保持一致
+
+                  // 账本管理
+                  Row() {
+                    SymbolGlyph($r('sys.symbol.book'))
+                      .fontSize(20)
+                      .fontColor([$r('app.color.text_secondary')])
+                      .margin({ right: 8 })
+                    Text('账本管理')
+                      .fontSize(17)
+                      .fontColor($r('app.color.text_primary'))
+                      .layoutWeight(1)
+                    SymbolGlyph($r('sys.symbol.chevron_right'))
+                      .fontSize(16)
+                      .fontColor([$r('app.color.text_secondary')])
+                  }
+                  .width('100%')
+                  .padding({ top: 14, bottom: 14 })
+                  .border({ width: { bottom: 1 }, color: $r('app.color.border_color') })
+                  .onClick(() => {
+                    router.pushUrl({ url: 'pages/LedgerManagePage' });
+                  })
 
                   // 深色模式
                   Row() {
@@ -5139,41 +5720,13 @@ struct Index {
                       }
                       .width('100%')
                       .padding({ top: 14, bottom: 14 })
+                      .border({ width: { bottom: 1 }, color: $r('app.color.border_color') })
                       .onClick(() => {
                         this.showReminderWeekPicker();
                       })
                     }
                   }
                   .width('100%')
-
-                  // 默认货币
-                  Row() {
-                    SymbolGlyph($r('sys.symbol.yuansign_circle'))
-                      .fontSize(20)
-                      .fontColor([$r('app.color.text_secondary')])
-                      .margin({ right: 8 })
-                    Text('默认货币')
-                      .fontSize(17)
-                      .fontColor($r('app.color.text_primary'))
-                    Blank()
-                    Text(this.currencySymbol)
-                      .fontSize(17)
-                      .fontColor($r('app.color.text_secondary'))
-                      .margin({ right: 8 })
-                    Image($r('sys.media.ohos_ic_public_arrow_right'))
-                      .width(16)
-                      .height(16)
-                      .fillColor($r('app.color.text_secondary'))
-                      .onClick(() => {
-                        promptAction.showToast({
-                          message: '货币功能正在开发中，敬请期待',
-                          duration: 2000
-                        });
-                      })
-                  }
-                  .width('100%')
-                  .padding({ top: 14, bottom: 14 })
-                  .border({ width: { bottom: 1 }, color: $r('app.color.border_color') })
 
                   // 关于应用
                   Row() {
@@ -5267,7 +5820,55 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor($r('app.color.bg_main'))
+    .bindSheet($$this.showLedgerSheet, this.LedgerSheetBuilder(), {
+      height: SheetSize.MEDIUM,
+      dragBar: true,
+      showClose: true,
+      backgroundColor: $r('app.color.bg_main')
+    })
   }
+}
+
+// 按逗号拆分一行 CSV，支持双引号包裹的字段与转义引号
+function splitCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current: string = '';
+  let inQuotes: boolean = false;
+  for (let i: number = 0; i < line.length; i++) {
+    const ch: string = line.charAt(i);
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line.charAt(i + 1) === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        result.push(current);
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+// CSV 字段转义：包含逗号/引号/换行时用双引号包裹
+function escapeCsvField(value: string): string {
+  if (value.indexOf(',') !== -1 || value.indexOf('"') !== -1 ||
+    value.indexOf('\n') !== -1 || value.indexOf('\r') !== -1) {
+    return '"' + value.split('"').join('""') + '"';
+  }
+  return value;
 }
 
 @Concurrent

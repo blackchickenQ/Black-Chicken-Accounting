@@ -3955,6 +3955,10 @@ struct Index {
         this.refreshKey++;
         console.info('✅ 周期账单生成了 ' + newBills.length + ' 条');
       }
+      // 周期生成的账单与手动记账同等对待：同步增减资金账户余额。
+      // 这些账单是本次新插入的记录、此前从未计入过余额，不同步的话
+      // 资产页会和账单流水对不上（典型场景：设了按月自动扣房租）
+      await this.applyAssetsBatch(newBills, 'add');
     } catch (e) {
       console.error('生成周期账单失败: ' + JSON.stringify(e));
     } finally {
@@ -4969,6 +4973,30 @@ struct Index {
     const delta = type === '收入' ? amount : -amount;
     item.amount += (operation === 'add' ? delta : -delta);
     if (item.amount < 0) item.amount = 0;
+    await this.saveAssetList(list);
+    await this.loadTotalAsset();
+  }
+
+  // 批量更新资金账户余额：整批只做一次读、一次写。
+  // 逐笔调用 updateAsset 会是 O(n) 次 Preferences 读写，
+  // 周期账单回填一次可能几十笔、批量删除同样。
+  async applyAssetsBatch(bills: BillItem[], operation: 'add' | 'remove'): Promise<void> {
+    if (bills.length === 0) {
+      return;
+    }
+    const list = await this.loadAssetList();
+    for (const bill of bills) {
+      let item = list.find(i => i.name === bill.source);
+      if (!item) {
+        item = { name: bill.source, amount: 0 };
+        list.push(item);
+      }
+      const delta: number = bill.type === '收入' ? bill.amount : -bill.amount;
+      item.amount += (operation === 'add' ? delta : -delta);
+      if (item.amount < 0) {
+        item.amount = 0;
+      }
+    }
     await this.saveAssetList(list);
     await this.loadTotalAsset();
   }
@@ -6824,6 +6852,9 @@ struct Index {
           ) as ImportWorkerResult;
           const importedCount: number = result.importedCount;
 
+          // 导入的账单不同步改动资金账户余额（有意如此）：
+          // 导入的是历史流水，而资产账户余额代表"当下"的实有金额，
+          // 用户手动设置余额时通常已经包含了这些历史交易，再扣一遍会重复计算
           this.bills = this.bills.concat(result.newBills);
           // 退款抵扣同步到界面：更新原账单净金额与退款信息（账单记录保留）
           if (result.existingUpdates.length > 0) {
@@ -6949,9 +6980,8 @@ struct Index {
   async executeBatchDelete(billsToDelete: BillItem[]): Promise<void> {
     const idsToDelete: Set<number> = new Set(billsToDelete.map((bill: BillItem) => bill.id));
     this.bills = this.bills.filter((bill: BillItem) => !idsToDelete.has(bill.id));
-    for (let i = 0; i < billsToDelete.length; i++) {
-      await this.updateAsset(billsToDelete[i].source, billsToDelete[i].type, billsToDelete[i].amount, 'remove');
-    }
+    // 整批一次性回退余额，替代原先逐笔 updateAsset 的 N 次读写
+    await this.applyAssetsBatch(billsToDelete, 'remove');
     await this.moveToRecycleBin(billsToDelete);
     this.saveBillsToPreferences();
     promptAction.showToast({

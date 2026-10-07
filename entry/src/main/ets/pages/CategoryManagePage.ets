@@ -13,6 +13,7 @@ export interface CategoryManageParams {
 @Entry
 @Component
 struct CategoryManagePage {
+  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @State ledgerId: number = DEFAULT_LEDGER_ID;
   @State ledgerName: string = '';
   @State categories: string[] = [];
@@ -188,8 +189,8 @@ struct CategoryManagePage {
       title: '确认删除',
       message: `确定删除分类「${name}」吗？`,
       buttons: [
-        { text: '取消', color: '#666666' },
-        { text: '删除', color: '#FF3B30' }
+        { text: '取消', color: $r('app.color.text_secondary') },
+        { text: '删除', color: $r('app.color.expense_red') }
       ]
     });
     if (result.index !== 1) {
@@ -201,7 +202,11 @@ struct CategoryManagePage {
     promptAction.showToast({ message: '分类已删除', duration: 1200 });
   }
 
+  // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
+  @StorageProp('isWideScreen') isWideScreen: boolean = false;
+
   build() {
+    Row() {
     Column() {
       // 标题栏
       Row() {
@@ -241,20 +246,20 @@ struct CategoryManagePage {
         TextInput({ placeholder: '输入新分类名称', text: this.newCategoryName })
           .fontColor($r('app.color.text_primary'))
           .backgroundColor($r('app.color.card_bg'))
-          .borderRadius(10)
+          .borderRadius(12)
           .border({ width: 1, color: $r('app.color.border_color') })
-          .padding({ left: 12, right: 12 })
-          .height(40)
+          .padding({ left: 16, right: 16 })
+          .height(44)
           .fontSize(15)
           .layoutWeight(1)
           .onChange((val: string) => { this.newCategoryName = val; })
           .onSubmit(() => { this.addCategory(); })
 
         Button('添加')
-          .backgroundColor($r('app.color.brand_blue'))
+          .backgroundColor(this.brandMain)
           .fontColor($r('app.color.text_white'))
-          .borderRadius(10)
-          .height(40)
+          .borderRadius(12)
+          .height(44)
           .padding({ left: 16, right: 16 })
           .fontSize(15)
           .margin({ left: 10 })
@@ -283,7 +288,7 @@ struct CategoryManagePage {
                   .onSubmit(() => { this.renameCategory(cat, this.editCategoryName); })
 
                 Button('保存')
-                  .backgroundColor($r('app.color.brand_blue'))
+                  .backgroundColor(this.brandMain)
                   .fontColor($r('app.color.text_white'))
                   .borderRadius(8)
                   .height(36)
@@ -307,17 +312,23 @@ struct CategoryManagePage {
                   })
               } else {
                 // ========== 查看模式 ==========
-                Column()
-                  .width(10)
-                  .height(10)
-                  .borderRadius(5)
-                  .backgroundColor(getCategoryColor(cat))
+                Column() {
+                  Text(cat.substring(0, 1))
+                    .fontSize(14)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(getCategoryColor(cat))
+                }
+                .width(32)
+                .height(32)
+                .borderRadius(16)
+                .backgroundColor(getCategoryColor(cat) + '1A')
+                .justifyContent(FlexAlign.Center)
+                .margin({ right: 10 })
 
                 Text(cat)
                   .fontSize(16)
                   .fontColor($r('app.color.text_primary'))
                   .layoutWeight(1)
-                  .margin({ left: 12 })
 
                 Text(this.getCategoryUsage(cat) + '笔')
                   .fontSize(14)
@@ -327,7 +338,7 @@ struct CategoryManagePage {
                 Image($r('sys.media.ohos_ic_public_edit'))
                   .width(20)
                   .height(20)
-                  .fillColor($r('app.color.brand_blue'))
+                  .fillColor(this.brandMain)
                   .onClick(() => {
                     animateTo({ curve: AnimationConfig.SPRING_SOFT }, () => {
                       this.editingCategory = cat;
@@ -348,6 +359,7 @@ struct CategoryManagePage {
             .backgroundColor($r('app.color.card_bg'))
             .borderRadius(12)
             .margin({ bottom: 8 })
+            .shadow({ radius: 6, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
             .transition(TransitionEffect.OPACITY
               .combine(TransitionEffect.scale({ x: 0.9, y: 0.9 }))
               .animation({ curve: AnimationConfig.SPRING }))
@@ -363,5 +375,11 @@ struct CategoryManagePage {
     .height('100%')
     .backgroundColor($r('app.color.bg_main'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    .constraintSize({ maxWidth: this.isWideScreen ? 640 : '100%' })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor($r('app.color.bg_main'))
   }
 }

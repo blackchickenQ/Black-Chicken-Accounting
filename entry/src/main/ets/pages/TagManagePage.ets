@@ -25,6 +25,8 @@ interface TagItem {
 @Entry
 @Component
 struct TagManagePage {
+  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
+  @StorageProp('brand_tint') brandTint: string = '#EEF1FE';
   @State tagList: TagItem[] = [];
   @State editTagName: string = '';
   @State editingTag: string = '';
@@ -68,8 +70,8 @@ struct TagManagePage {
       title: '确认删除',
       message: `删除标签「${tagName}」后，所有账单中的该标签将被移除，确定吗？`,
       buttons: [
-        { text: '取消', color: '#666666' },
-        { text: '删除', color: '#FF3B30' }
+        { text: '取消', color: $r('app.color.text_secondary') },
+        { text: '删除', color: $r('app.color.expense_red') }
       ]
     });
 
@@ -182,8 +184,8 @@ struct TagManagePage {
       title: '确认清空',
       message: `将删除所有标签（共 ${this.tagList.length} 个），并从所有账单中移除，确定吗？`,
       buttons: [
-        { text: '取消', color: '#666666' },
-        { text: '清空', color: '#FF3B30' }
+        { text: '取消', color: $r('app.color.text_secondary') },
+        { text: '清空', color: $r('app.color.expense_red') }
       ]
     });
 
@@ -232,7 +234,11 @@ struct TagManagePage {
     }
   }
 
+  // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
+  @StorageProp('isWideScreen') isWideScreen: boolean = false;
+
   build() {
+    Row() {
     Column() {
       // 标题栏
       Row() {
@@ -312,7 +318,7 @@ struct TagManagePage {
                     .onSubmit(() => { this.renameTag(item.name, this.editTagName); })
 
                   Button('保存')
-                    .backgroundColor($r('app.color.brand_blue'))
+                    .backgroundColor(this.brandMain)
                     .fontColor($r('app.color.text_white'))
                     .borderRadius(8)
                     .height(36)
@@ -337,6 +343,18 @@ struct TagManagePage {
                     })
                 } else {
                   // ========== 查看模式 ==========
+                  Column() {
+                    Text('#')
+                      .fontSize(16)
+                      .fontColor(this.brandMain)
+                  }
+                  .width(32)
+                  .height(32)
+                  .borderRadius(16)
+                  .backgroundColor(this.brandTint)
+                  .justifyContent(FlexAlign.Center)
+                  .margin({ right: 10 })
+
                   Text('#' + item.name)
                     .fontSize(16)
                     .fontColor($r('app.color.text_primary'))
@@ -351,7 +369,7 @@ struct TagManagePage {
                   Image($r('sys.media.ohos_ic_public_edit'))
                     .width(20)
                     .height(20)
-                    .fillColor($r('app.color.brand_blue'))
+                    .fillColor(this.brandMain)
                     .onClick(() => {
                       animateTo({ curve: AnimationConfig.SPRING_SOFT }, () => {
                         this.editingTag = item.name;
@@ -373,6 +391,7 @@ struct TagManagePage {
               .backgroundColor($r('app.color.card_bg'))
               .borderRadius(12)
               .margin({ bottom: 8 })
+              .shadow({ radius: 6, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
               .transition(TransitionEffect.OPACITY
                 .combine(TransitionEffect.scale({ x: 0.9, y: 0.9 }))
                 .animation({ curve: AnimationConfig.SPRING }))
@@ -388,5 +407,11 @@ struct TagManagePage {
     .height('100%')
     .backgroundColor($r('app.color.bg_main'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    .constraintSize({ maxWidth: this.isWideScreen ? 640 : '100%' })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor($r('app.color.bg_main'))
   }
 }

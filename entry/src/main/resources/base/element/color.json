@@ -2,7 +2,7 @@
   "color": [
     {
       "name": "bg_main",
-      "value": "#F2F4F8"
+      "value": "#F6F7FB"
     },
     {
       "name": "card_bg",
@@ -10,11 +10,11 @@
     },
     {
       "name": "text_primary",
-      "value": "#1A1A2E"
+      "value": "#1A1C2B"
     },
     {
       "name": "text_secondary",
-      "value": "#8E8EA0"
+      "value": "#7E8598"
     },
     {
       "name": "text_white",
@@ -22,11 +22,23 @@
     },
     {
       "name": "brand_blue",
-      "value": "#007AFF"
+      "value": "#4E6EF2"
+    },
+    {
+      "name": "brand_blue_light",
+      "value": "#7B93FF"
+    },
+    {
+      "name": "brand_blue_deep",
+      "value": "#3A55E0"
+    },
+    {
+      "name": "brand_blue_tint",
+      "value": "#EEF1FE"
     },
     {
       "name": "expense_red",
-      "value": "#FF3B30"
+      "value": "#FF5C5C"
     },
     {
       "name": "income_gold",
@@ -34,19 +46,19 @@
     },
     {
       "name": "border_color",
-      "value": "#E8ECF0"
+      "value": "#EBEEF5"
     },
     {
       "name": "expense_tag_bg",
-      "value": "#FFEBEE"
+      "value": "#FFEDEF"
     },
     {
       "name": "income_tag_bg",
-      "value": "#FFF8E1"
+      "value": "#FFF6E0"
     },
     {
       "name": "expense_tag_text",
-      "value": "#C62828"
+      "value": "#E14B4B"
     },
     {
       "name": "income_tag_text",
@@ -54,7 +66,7 @@
     },
     {
       "name": "category_btn_bg",
-      "value": "#F0F2F5"
+      "value": "#F2F4FA"
     },
     {
       "name": "stat_text_color",
@@ -70,15 +82,22 @@
     },
     {
       "name": "status_bar_bg",
-      "value": "#F2F4F8"
+      "value": "#F6F7FB"
     },
     { "name": "calendar_bg", "value": "#FFFFFF" },
     { "name": "calendar_text", "value": "#252a34" },
     { "name": "calendar_week_text", "value": "#99182431" },
     { "name": "calendar_other_text", "value": "#33182431" },
-    { "name": "calendar_today_bg", "value": "#007AFF" },
+    { "name": "calendar_today_bg", "value": "#4E6EF2" },
     { "name": "calendar_today_text", "value": "#FFFFFF" },
-    { "name": "calendar_selected_bg", "value": "#1A007DFF" }
-
+    { "name": "calendar_selected_bg", "value": "#1A4E6EF2" },
+    { "name": "budget_orange", "value": "#FF9500" },
+    { "name": "success_green", "value": "#34C759" },
+    { "name": "mask_bg", "value": "#00000000" },
+    { "name": "chart_grid", "value": "#EEF0F4" },
+    { "name": "chart_text", "value": "#666666" },
+    { "name": "chart_text_light", "value": "#999999" },
+    { "name": "shadow_color", "value": "#142E4D8C" },
+    { "name": "glass_bg", "value": "#E6F6F7FB" }
   ]
 }

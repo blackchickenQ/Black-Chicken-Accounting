@@ -3,6 +3,7 @@ import { router } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { AnimationConfig } from './Index';
+import { ASSET_PALETTE } from '../common/AppTheme';
 
 interface AssetCategory {
   name: string;
@@ -12,6 +13,7 @@ interface AssetCategory {
 // ========== 输入弹窗（保留 controller 但不使用 close） ==========
 @CustomDialog
 struct InputDialog {
+  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   controller: CustomDialogController = new CustomDialogController({
     builder: () => {}
   });
@@ -52,7 +54,7 @@ struct InputDialog {
         .borderColor($r('app.color.border_color'))
         .borderWidth(1)
         .padding({ left: 16, right: 16 })
-        .type(InputType.Number)
+        .type(InputType.NUMBER_DECIMAL)
         .onChange((val: string) => { this.inputAmount = val; })
         .margin({ bottom: 20 })
 
@@ -70,10 +72,10 @@ struct InputDialog {
         Blank().width(16)
 
         Button(this.confirmText)
-          .backgroundColor($r('app.color.brand_blue'))
+          .backgroundColor(this.brandMain)
           .fontColor($r('app.color.text_white'))
-          .borderRadius(20)
-          .height(40)
+          .borderRadius(22)
+          .height(44)
           .layoutWeight(1)
           .onClick(() => {
             const name = this.inputName.trim();
@@ -94,16 +96,19 @@ struct InputDialog {
     .width('85%')
     .padding(20)
     .backgroundColor($r('app.color.card_bg'))
-    .borderRadius(20)
+    .borderRadius(24)
   }
 }
 
 @Entry
 @Component
 struct AssetDetailPage {
+  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @State assetList: AssetCategory[] = [];
   @State refreshKey: number = 0;   // ✅ 新增刷新标志
   @State pressedSummary: boolean = false;
+  // 小眼睛：控制金额显示/隐藏（隐藏时显示 ¥****）
+  @State amountVisible: boolean = true;
   private context = this.getUIContext().getHostContext() as common.UIAbilityContext;
   private inputDialogController: CustomDialogController | null = null;
 
@@ -177,8 +182,9 @@ struct AssetDetailPage {
   }
 
   // 编辑分类
-  openEditDialog(index: number) {
-    const item = this.assetList[index];
+  // 注意：ForEach 项的 key 不含位置，删除/移动后 itemGenerator 不会重跑，
+  // 闭包里捕获的下标会过期，因此这里传 item 引用、操作时实时定位下标
+  openEditDialog(item: AssetCategory) {
     const controller = new CustomDialogController({
       builder: InputDialog({
         title: '修改金额',
@@ -190,8 +196,13 @@ struct AssetDetailPage {
             promptAction.showToast({ message: '分类名已存在', duration: 2000 });
             return;
           }
+          const idx: number = this.assetList.indexOf(item);
+          if (idx < 0 || idx >= this.assetList.length) {
+            controller.close();
+            return;
+          }
           animateTo({ curve: AnimationConfig.SPRING }, () => {
-            this.assetList[index] = { name, amount };
+            this.assetList[idx] = { name, amount };
             this.assetList = [...this.assetList];
           });
           this.saveAssetData();
@@ -209,19 +220,28 @@ struct AssetDetailPage {
     controller.open();
   }
 
-  // 删除分类
-  deleteCategory(index: number) {
+  // 删除分类（传 item 引用而非下标，弹窗确认后重新定位，避免列表变化导致越界）
+  deleteCategory(item: AssetCategory) {
+    const index: number = this.assetList.indexOf(item);
+    if (index < 0 || index >= this.assetList.length) {
+      return;
+    }
     promptAction.showDialog({
       title: '确认删除',
-      message: `删除分类“${this.assetList[index].name}”？`,
+      message: `删除分类“${item.name}”？`,
       buttons: [
-        { text: '取消', color: '#666666' },
-        { text: '删除', color: '#FF3B30' }
+        { text: '取消', color: $r('app.color.text_secondary') },
+        { text: '删除', color: $r('app.color.expense_red') }
       ]
     }).then((result) => {
       if (result.index === 1) {
+        // 列表可能在弹窗期间被修改，删除前重新定位
+        const idx: number = this.assetList.indexOf(item);
+        if (idx < 0 || idx >= this.assetList.length) {
+          return;
+        }
         animateTo({ curve: AnimationConfig.SPRING }, () => {
-          this.assetList.splice(index, 1);
+          this.assetList.splice(idx, 1);
           this.assetList = [...this.assetList];
         });
         this.saveAssetData();
@@ -229,7 +249,11 @@ struct AssetDetailPage {
     });
   }
 
+  // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
+  @StorageProp('isWideScreen') isWideScreen: boolean = false;
+
   build() {
+    Row() {
     Column() {
       // 标题栏
       Row() {
@@ -247,27 +271,61 @@ struct AssetDetailPage {
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
           .layoutWeight(1)
+
+        Row() {
+          Text('资产管理')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.brandMain)
+          Image($r('sys.media.ohos_ic_public_arrow_right'))
+            .width(16)
+            .height(16)
+            .fillColor(this.brandMain)
+        }
+        .padding({ left: 8, right: 4, top: 4, bottom: 4 })
+        .onClick(() => {
+          // 返回主页并切换到财富页资产界面
+          AppStorage.setOrCreate('wealth_mode', 'asset');
+          AppStorage.setOrCreate('jump_to_wealth_asset', true);
+          router.back();
+        })
       }
       .width('100%')
       .padding({ left: 20, right: 20, top: 20, bottom: 16 })
 
-      // 总资产汇总
+      Divider()
+        .color($r('app.color.border_color'))
+        .height(1)
+
+      // 总资产汇总（右侧小眼睛切换金额显示/隐藏）
       Row() {
-        Column() {
-          Text('总资产合计')
-            .fontSize(14)
-            .fontColor($r('app.color.text_secondary'))
-          Text('¥' + this.getTotal().toFixed(2))
-            .fontSize(32)
-            .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_primary'))
-            .margin({ top: 4 })
+        Row() {
+          Column() {
+            Text('总资产合计')
+              .fontSize(14)
+              .fontColor($r('app.color.text_secondary'))
+            Text(this.amountVisible ? '¥' + this.getTotal().toFixed(2) : '¥****')
+              .fontSize(32)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('app.color.text_primary'))
+              .margin({ top: 4 })
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+
+          SymbolGlyph(this.amountVisible ? $r('sys.symbol.eye') : $r('sys.symbol.eye_slash'))
+            .fontSize(22)
+            .fontColor([$r('app.color.text_secondary')])
+            .margin({ left: 12 })
+            .onClick(() => {
+              this.amountVisible = !this.amountVisible;
+            })
         }
         .width('100%')
-        .padding({ top: 16, bottom: 16 })
+        .padding({ top: 16, bottom: 16, left: 16, right: 16 })
         .backgroundColor($r('app.color.card_bg'))
         .borderRadius(16)
-        .shadow({ radius: 8, color: 'rgba(0, 0, 0, 0.04)', offsetX: 0, offsetY: 2 })
+        .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
         .scale({ x: this.pressedSummary ? 0.97 : 1, y: this.pressedSummary ? 0.97 : 1 })
         .animation({ curve: AnimationConfig.SPRING })
         .onTouch((event: TouchEvent) => {
@@ -302,7 +360,7 @@ struct AssetDetailPage {
                   .fontColor($r('app.color.text_primary'))
                   .layoutWeight(1)
 
-                Text('¥' + item.amount.toFixed(2))
+                Text(this.amountVisible ? '¥' + item.amount.toFixed(2) : '¥****')
                   .fontSize(16)
                   .fontWeight(FontWeight.Medium)
                   .fontColor($r('app.color.text_primary'))
@@ -311,9 +369,9 @@ struct AssetDetailPage {
                 Image($r('sys.media.ohos_ic_public_edit'))
                   .width(20)
                   .height(20)
-                  .fillColor($r('app.color.brand_blue'))
+                  .fillColor(this.brandMain)
                   .onClick(() => {
-                    this.openEditDialog(index);
+                    this.openEditDialog(item);
                   })
                   .margin({ right: 8 })
 
@@ -322,14 +380,14 @@ struct AssetDetailPage {
                   .height(20)
                   .fillColor($r('app.color.expense_red'))
                   .onClick(() => {
-                    this.deleteCategory(index);
+                    this.deleteCategory(item);
                   })
               }
               .width('100%')
               .padding({ top: 14, left: 16, bottom: 14, right: 8 })
               .backgroundColor($r('app.color.card_bg'))
               .borderRadius(12)
-              .shadow({ radius: 4, color: 'rgba(0, 0, 0, 0.02)', offsetX: 0, offsetY: 1 })
+              .shadow({ radius: 4, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 1 })
               .margin({ bottom: 8 })
               .transition(TransitionEffect.OPACITY
                 .combine(TransitionEffect.scale({ x: 0.9, y: 0.9 }))
@@ -348,7 +406,7 @@ struct AssetDetailPage {
         Button('添加分类')
           .width('100%')
           .height(48)
-          .backgroundColor($r('app.color.brand_blue'))
+          .backgroundColor(this.brandMain)
           .fontColor($r('app.color.text_white'))
           .borderRadius(24)
           .fontSize(16)
@@ -364,11 +422,13 @@ struct AssetDetailPage {
     .height('100%')
     .backgroundColor($r('app.color.bg_main'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    .constraintSize({ maxWidth: this.isWideScreen ? 640 : '100%' })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor($r('app.color.bg_main'))
   }
 
-  private colorPalette: string[] = [
-    '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA94D', '#A29BFE',
-    '#FD79A8', '#00B894', '#E17055', '#6C5CE7', '#FDCB6E',
-    '#00CEC9', '#D63031', '#0984E3', '#F368E0', '#FF9FF3'
-  ];
+  private colorPalette: string[] = ASSET_PALETTE;
 }

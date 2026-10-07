@@ -11,6 +11,30 @@
     {
       "name": "EntryAbility_label",
       "value": "乌鸡记账"
+    },
+    {
+      "name": "EntryFormAbility_label",
+      "value": "乌鸡记账"
+    },
+    {
+      "name": "EntryFormAbility_desc",
+      "value": "乌鸡记账桌面卡片"
+    },
+    {
+      "name": "widget_display_name",
+      "value": "记账卡片"
+    },
+    {
+      "name": "widget_desc",
+      "value": "展示今日支出、本月支出与预算进度"
+    },
+    {
+      "name": "budget_ring_widget_name",
+      "value": "预算圆环卡片"
+    },
+    {
+      "name": "budget_ring_widget_desc",
+      "value": "圆环展示本月支出占预算的比例"
     }
   ]
 }

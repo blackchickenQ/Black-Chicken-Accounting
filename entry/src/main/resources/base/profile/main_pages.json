@@ -4,6 +4,14 @@
     "pages/AssetDetailPage",
     "pages/TagManagePage",
     "pages/LedgerManagePage",
-    "pages/CategoryManagePage"
+    "pages/CategoryManagePage",
+    "pages/RecurringManagePage",
+    "pages/AchievementPage",
+    "pages/RecycleBinPage",
+    "pages/MonthlyReportPage",
+    "pages/AnnualReportPage",
+    "pages/WeeklyReportPage",
+    "pages/SavingGoalDetailPage",
+    "pages/GuideIntroPage"
   ]
 }

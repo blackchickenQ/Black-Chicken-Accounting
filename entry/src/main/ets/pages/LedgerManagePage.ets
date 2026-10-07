@@ -24,6 +24,7 @@ const LEDGER_COLORS: string[] = [
 // ========== 账本编辑弹窗（新建/编辑共用） ==========
 @CustomDialog
 struct LedgerEditDialog {
+  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   controller: CustomDialogController = new CustomDialogController({
     builder: () => {}
   });
@@ -45,18 +46,20 @@ struct LedgerEditDialog {
   build() {
     Column() {
       Text(this.title)
-        .fontSize(18)
+        .fontSize(20)
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary'))
+        .alignSelf(ItemAlign.Start)
         .margin({ bottom: 16 })
 
       // 名称输入
       TextInput({ placeholder: '账本名称（如：日常开销、旅行基金）', text: this.name })
         .fontColor($r('app.color.text_primary'))
-        .backgroundColor($r('app.color.category_btn_bg'))
-        .borderRadius(10)
-        .padding({ left: 12, right: 12 })
-        .height(42)
+        .backgroundColor($r('app.color.card_bg'))
+        .borderRadius(12)
+        .border({ width: 1, color: $r('app.color.border_color') })
+        .padding({ left: 16, right: 16 })
+        .height(44)
         .fontSize(15)
         .width('100%')
         .onChange((val: string) => { this.name = val; })
@@ -74,7 +77,7 @@ struct LedgerEditDialog {
           Column() {
             SymbolGlyph(getLedgerIconResource(key))
               .fontSize(22)
-              .fontColor([this.selectedIcon === key ? $r('app.color.brand_blue') : $r('app.color.text_secondary')])
+              .fontColor([this.selectedIcon === key ? this.brandMain : $r('app.color.text_secondary')])
           }
           .width(46)
           .height(46)
@@ -84,7 +87,7 @@ struct LedgerEditDialog {
           .backgroundColor(this.selectedIcon === key ? $r('app.color.category_btn_bg') : Color.Transparent)
           .border({
             width: 1,
-            color: this.selectedIcon === key ? $r('app.color.brand_blue') : Color.Transparent
+            color: this.selectedIcon === key ? this.brandMain : Color.Transparent
           })
           .margin({ right: 8, bottom: 8 })
           .onClick(() => {
@@ -133,7 +136,7 @@ struct LedgerEditDialog {
       // 按钮
       Row() {
         Button('取消')
-          .backgroundColor($r('app.color.category_btn_bg'))
+          .backgroundColor('transparent')
           .fontColor($r('app.color.text_secondary'))
           .borderRadius(20)
           .height(40)
@@ -143,10 +146,10 @@ struct LedgerEditDialog {
           .onClick(() => { this.controller.close(); })
 
         Button('确定')
-          .backgroundColor($r('app.color.brand_blue'))
+          .backgroundColor(this.brandMain)
           .fontColor($r('app.color.text_white'))
-          .borderRadius(20)
-          .height(40)
+          .borderRadius(22)
+          .height(44)
           .layoutWeight(1)
           .fontSize(15)
           .margin({ left: 8 })
@@ -157,7 +160,7 @@ struct LedgerEditDialog {
       }
       .width('100%')
     }
-    .width('90%')
+    .width('85%')
     .padding(20)
     .backgroundColor($r('app.color.card_bg'))
     .borderRadius(24)
@@ -167,6 +170,7 @@ struct LedgerEditDialog {
 @Entry
 @Component
 struct LedgerManagePage {
+  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @State ledgers: LedgerItem[] = [];
   @State billList: BillItem[] = [];
   private editDialogController: CustomDialogController | null = null;
@@ -333,8 +337,8 @@ struct LedgerManagePage {
       title: '确认删除',
       message: `删除账本「${ledger.name}」后，其中 ${billCount} 笔账单将归入默认账本，确定吗？`,
       buttons: [
-        { text: '取消', color: '#666666' },
-        { text: '删除', color: '#FF3B30' }
+        { text: '取消', color: $r('app.color.text_secondary') },
+        { text: '删除', color: $r('app.color.expense_red') }
       ]
     });
     if (result.index !== 1) {
@@ -399,6 +403,49 @@ struct LedgerManagePage {
     }
   }
 
+  // ---------- 一键清空账本账单 ----------
+  async clearLedgerBills(ledger: LedgerItem): Promise<void> {
+    const billCount = this.getBillCount(ledger.id);
+    if (billCount === 0) {
+      promptAction.showToast({ message: '该账本暂无账单', duration: 1500 });
+      return;
+    }
+
+    const result = await promptAction.showDialog({
+      title: '确认清空',
+      message: `将删除账本「${ledger.name}」中的 ${billCount} 笔账单，删除后不可恢复，确定吗？`,
+      buttons: [
+        { text: '取消', color: $r('app.color.text_secondary') },
+        { text: '清空', color: $r('app.color.expense_red') }
+      ]
+    });
+    if (result.index !== 1) {
+      return;
+    }
+
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const prefs = await dataPreferences.getPreferences(context, 'bill_data');
+
+      const billsData = await prefs.get('bills_key', '[]') as string;
+      const bills = JSON.parse(billsData) as BillItem[];
+      const remaining = bills.filter((bill: BillItem) => (bill.ledgerId ?? DEFAULT_LEDGER_ID) !== ledger.id);
+
+      await prefs.put('bills_key', JSON.stringify(remaining));
+      await prefs.flush();
+
+      // 通知 Index 页面刷新
+      AppStorage.setOrCreate('bills', remaining);
+      AppStorage.setOrCreate('shouldRefreshBills', Date.now());
+
+      this.billList = remaining;
+      promptAction.showToast({ message: `已清空 ${billCount} 笔账单`, duration: 1200 });
+    } catch (e) {
+      console.error('清空账本账单失败: ' + JSON.stringify(e));
+      promptAction.showToast({ message: '清空失败', duration: 1500 });
+    }
+  }
+
   // ---------- 分类管理入口 ----------
   goCategoryManage(ledger: LedgerItem) {
     router.pushUrl({
@@ -407,7 +454,11 @@ struct LedgerManagePage {
     });
   }
 
+  // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
+  @StorageProp('isWideScreen') isWideScreen: boolean = false;
+
   build() {
+    Row() {
     Column() {
       // 标题栏
       Row() {
@@ -428,7 +479,7 @@ struct LedgerManagePage {
 
         SymbolGlyph($r('sys.symbol.plus'))
           .fontSize(24)
-          .fontColor([$r('app.color.brand_blue')])
+          .fontColor([this.brandMain])
           .onClick(() => { this.openCreateDialog(); })
       }
       .width('100%')
@@ -467,8 +518,8 @@ struct LedgerManagePage {
 
                     if (item.isDefault) {
                       Text('默认')
-                        .fontSize(11)
-                        .fontColor($r('app.color.brand_blue'))
+                        .fontSize(12)
+                        .fontColor(this.brandMain)
                         .backgroundColor($r('app.color.category_btn_bg'))
                         .borderRadius(6)
                         .padding({ left: 6, right: 6, top: 2, bottom: 2 })
@@ -489,7 +540,7 @@ struct LedgerManagePage {
                 Image($r('sys.media.ohos_ic_public_edit'))
                   .width(20)
                   .height(20)
-                  .fillColor($r('app.color.brand_blue'))
+                  .fillColor(this.brandMain)
                   .margin({ right: 12 })
                   .onClick(() => { this.openEditDialog(item); })
 
@@ -519,6 +570,23 @@ struct LedgerManagePage {
               .margin({ top: 10 })
               .border({ width: { top: 1 }, color: $r('app.color.border_color') })
               .onClick(() => { this.goCategoryManage(item); })
+
+              // 一键清空该账本账单
+              Row() {
+                Text('清空账单')
+                  .fontSize(14)
+                  .fontColor($r('app.color.expense_red'))
+                Blank()
+                Image($r('sys.media.ohos_ic_public_remove'))
+                  .width(16)
+                  .height(16)
+                  .fillColor($r('app.color.expense_red'))
+              }
+              .width('100%')
+              .padding({ top: 10 })
+              .margin({ top: 10 })
+              .border({ width: { top: 1 }, color: $r('app.color.border_color') })
+              .onClick(() => { this.clearLedgerBills(item); })
             }
             .width('100%')
             .padding(16)
@@ -538,7 +606,7 @@ struct LedgerManagePage {
 
       // 新建账本按钮
       Button('新建账本')
-        .backgroundColor($r('app.color.brand_blue'))
+        .backgroundColor(this.brandMain)
         .fontColor($r('app.color.text_white'))
         .borderRadius(24)
         .height(48)
@@ -552,5 +620,11 @@ struct LedgerManagePage {
     .height('100%')
     .backgroundColor($r('app.color.bg_main'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    .constraintSize({ maxWidth: this.isWideScreen ? 640 : '100%' })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor($r('app.color.bg_main'))
   }
 }

@@ -1,6 +1,5 @@
 // pages/RecurringManagePage.ets
 import { router } from '@kit.ArkUI';
-import { promptAction } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import {
@@ -369,11 +368,11 @@ struct RecurringEditDialog {
             const trimmed = this.name.trim();
             const amount = Number(this.amountText);
             if (trimmed.length === 0) {
-              promptAction.showToast({ message: '请输入名称', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '请输入名称', duration: 1500 });
               return;
             }
             if (!isFinite(amount) || amount <= 0) {
-              promptAction.showToast({ message: '请输入正确的金额', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '请输入正确的金额', duration: 1500 });
               return;
             }
             const source = this.source.trim();
@@ -466,7 +465,7 @@ struct RecurringManagePage {
       AppStorage.setOrCreate('shouldRefreshRecurring', Date.now());
     } catch (e) {
       console.error('保存周期账单规则失败: ' + JSON.stringify(e));
-      promptAction.showToast({ message: '保存失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '保存失败', duration: 1500 });
     }
   }
 
@@ -493,7 +492,7 @@ struct RecurringManagePage {
 
   async createRule(rule: RecurringBill): Promise<void> {
     await this.saveRules([...this.rules, rule]);
-    promptAction.showToast({ message: '周期账单已创建', duration: 1200 });
+    this.getUIContext().getPromptAction().showToast({ message: '周期账单已创建', duration: 1200 });
   }
 
   // ---------- 编辑 ----------
@@ -522,7 +521,7 @@ struct RecurringManagePage {
       return item.id === updated.id ? updated : item;
     });
     await this.saveRules(list);
-    promptAction.showToast({ message: '周期账单已更新', duration: 1200 });
+    this.getUIContext().getPromptAction().showToast({ message: '周期账单已更新', duration: 1200 });
   }
 
   // ---------- 开关 ----------
@@ -551,7 +550,7 @@ struct RecurringManagePage {
 
   // ---------- 删除 ----------
   async deleteRule(rule: RecurringBill): Promise<void> {
-    const result = await promptAction.showDialog({
+    const result = await this.getUIContext().getPromptAction().showDialog({
       title: '确认删除',
       message: `删除「${rule.name}」后不再自动生成，已生成的账单会保留，确定吗？`,
       buttons: [
@@ -563,7 +562,7 @@ struct RecurringManagePage {
       return;
     }
     await this.saveRules(this.rules.filter((item: RecurringBill) => item.id !== rule.id));
-    promptAction.showToast({ message: '周期账单已删除', duration: 1200 });
+    this.getUIContext().getPromptAction().showToast({ message: '周期账单已删除', duration: 1200 });
   }
 
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中

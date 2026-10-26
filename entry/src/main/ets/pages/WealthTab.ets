@@ -1,4 +1,3 @@
-import { promptAction } from '@kit.ArkUI';
 import { router } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
@@ -215,11 +214,11 @@ struct CreditAccountDialog {
             const name = this.inputName.trim();
             const debt = parseFloat(this.inputDebt);
             if (!name) {
-              promptAction.showToast({ message: '请输入账户名称', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '请输入账户名称', duration: 1500 });
               return;
             }
             if (isNaN(debt) || debt < 0) {
-              promptAction.showToast({ message: '请输入有效金额', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '请输入有效金额', duration: 1500 });
               return;
             }
             this.onConfirm(name, debt, this.dueDate);
@@ -305,11 +304,11 @@ struct FundAccountDialog {
             const name = this.inputName.trim();
             const amount = parseFloat(this.inputAmount);
             if (!name) {
-              promptAction.showToast({ message: '请输入账户名称', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '请输入账户名称', duration: 1500 });
               return;
             }
             if (isNaN(amount)) {
-              promptAction.showToast({ message: '请输入有效金额', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '请输入有效金额', duration: 1500 });
               return;
             }
             this.onConfirm(name, amount);
@@ -499,11 +498,11 @@ export struct SavingGoalDialog {
             const targetRaw = parseFloat(this.inputTarget);
             const savedRaw = parseFloat(this.inputSaved);
             if (!name) {
-              promptAction.showToast({ message: '请输入目标名称', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '请输入目标名称', duration: 1500 });
               return;
             }
             if (isNaN(targetRaw) || targetRaw <= 0) {
-              promptAction.showToast({ message: '请输入有效的目标金额', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '请输入有效的目标金额', duration: 1500 });
               return;
             }
             // 按所选单位换算成元，并消除浮点误差
@@ -777,11 +776,11 @@ struct WishAddDialog {
             const name = this.inputName.trim();
             const price = parseFloat(this.inputPrice);
             if (!name) {
-              promptAction.showToast({ message: '请写下想要的宝贝', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '请写下想要的宝贝', duration: 1500 });
               return;
             }
             if (isNaN(price) || price <= 0) {
-              promptAction.showToast({ message: '请输入有效的价格', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '请输入有效的价格', duration: 1500 });
               return;
             }
             this.onConfirm(name, Math.round(price * 100) / 100);
@@ -1005,7 +1004,7 @@ struct FinanceProfileDialog {
           .onClick(() => {
             if (this.selIncome === '' || this.selFixed === '' || this.selEmergency === '' ||
               this.selDebt === '' || this.selRisk === '' || this.selInvest === '') {
-              promptAction.showToast({ message: '请答完全部6题', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '请答完全部6题', duration: 1500 });
               return;
             }
             const profile: FinanceProfile = {
@@ -1140,7 +1139,7 @@ export struct WealthTab {
           });
           saveWishes(this.context, this.wishes);
           controller.close();
-          promptAction.showToast({
+          this.getUIContext().getPromptAction().showToast({
             message: `已进入 ${WISH_COOLING_DAYS} 天冷静期，冲动是魔鬼~`,
             duration: 2200
           });
@@ -1167,7 +1166,7 @@ export struct WealthTab {
     };
     this.wishes = [...this.wishes];
     saveWishes(this.context, this.wishes);
-    promptAction.showToast({ message: '那就为它好好攒钱吧！', duration: 1800 });
+    this.getUIContext().getPromptAction().showToast({ message: '那就为它好好攒钱吧！', duration: 1800 });
   }
 
   // 放下愿望：从清单移除；convert 为 true 时同时转为同名存钱目标
@@ -1186,9 +1185,9 @@ export struct WealthTab {
         this.savingGoals = [goal, ...this.savingGoals];
       });
       this.saveSavingGoals();
-      promptAction.showToast({ message: '已转为存钱目标，把想买变成攒到！', duration: 2200 });
+      this.getUIContext().getPromptAction().showToast({ message: '已转为存钱目标，把想买变成攒到！', duration: 2200 });
     } else {
-      promptAction.showToast({ message: '放下也是省钱，为你点赞！', duration: 1800 });
+      this.getUIContext().getPromptAction().showToast({ message: '放下也是省钱，为你点赞！', duration: 1800 });
     }
     animateTo({ curve: AnimationConfig.SPRING_SOFT }, () => {
       this.wishes = this.wishes.filter((w: WishItem): boolean => w.id !== item.id);
@@ -1199,7 +1198,7 @@ export struct WealthTab {
   // 点击冷静期满的愿望：做决定
   onWishDecide(index: number): void {
     const item = this.wishes[index];
-    promptAction.showDialog({
+    this.getUIContext().getPromptAction().showDialog({
       title: '冷静期已满',
       message: `还想买「${item.name}」（¥${item.price.toFixed(2)}）吗？`,
       buttons: [
@@ -1240,7 +1239,7 @@ export struct WealthTab {
           });
           this.saveSavingGoals();
           controller.close();
-          promptAction.showToast({
+          this.getUIContext().getPromptAction().showToast({
             message: billOnDeposit ? `挑战开始！每笔存入将同步记账` : `挑战开始！${tpl.desc}`,
             duration: 2500
           });
@@ -1385,7 +1384,7 @@ export struct WealthTab {
         onConfirm: (p: FinanceProfile) => {
           this.profile = p;
           this.saveProfile(p);
-          promptAction.showToast({ message: '画像已更新，健康度已重新评估', duration: 1500 });
+          this.getUIContext().getPromptAction().showToast({ message: '画像已更新，健康度已重新评估', duration: 1500 });
           controller.close();
         },
         onCancel: () => { controller.close(); }
@@ -2022,7 +2021,7 @@ export struct WealthTab {
         confirmText: '添加',
         onConfirm: (name: string, amount: number) => {
           if (this.fundAccounts.some(item => item.name === name)) {
-            promptAction.showToast({ message: '已存在同名账户', duration: 1500 });
+            this.getUIContext().getPromptAction().showToast({ message: '已存在同名账户', duration: 1500 });
             return;
           }
           const account: FundAccount = { name: name, amount: amount };
@@ -2052,7 +2051,7 @@ export struct WealthTab {
         inputAmount: item.amount.toString(),
         onConfirm: (name: string, amount: number) => {
           if (name !== item.name && this.fundAccounts.some(i => i.name === name)) {
-            promptAction.showToast({ message: '已存在同名账户', duration: 1500 });
+            this.getUIContext().getPromptAction().showToast({ message: '已存在同名账户', duration: 1500 });
             return;
           }
           animateTo({ curve: AnimationConfig.SPRING }, () => {
@@ -2073,7 +2072,7 @@ export struct WealthTab {
   }
 
   deleteFundAccount(index: number): void {
-    promptAction.showDialog({
+    this.getUIContext().getPromptAction().showDialog({
       title: '确认删除',
       message: `删除资金账户「${this.fundAccounts[index].name}」？已记录的账单不受影响。`,
       buttons: [
@@ -2099,7 +2098,7 @@ export struct WealthTab {
         confirmText: '添加',
         onConfirm: (name: string, debt: number, dueDate: number) => {
           if (this.creditAccounts.some(item => item.name === name)) {
-            promptAction.showToast({ message: '已存在同名账户', duration: 1500 });
+            this.getUIContext().getPromptAction().showToast({ message: '已存在同名账户', duration: 1500 });
             return;
           }
           const account: CreditAccount = { id: Date.now(), name: name, debt: debt, dueDate: dueDate };
@@ -2130,7 +2129,7 @@ export struct WealthTab {
         dueDate: item.dueDate,
         onConfirm: (name: string, debt: number, dueDate: number) => {
           if (name !== item.name && this.creditAccounts.some(i => i.name === name)) {
-            promptAction.showToast({ message: '已存在同名账户', duration: 1500 });
+            this.getUIContext().getPromptAction().showToast({ message: '已存在同名账户', duration: 1500 });
             return;
           }
           animateTo({ curve: AnimationConfig.SPRING }, () => {
@@ -2151,7 +2150,7 @@ export struct WealthTab {
   }
 
   deleteCreditAccount(index: number): void {
-    promptAction.showDialog({
+    this.getUIContext().getPromptAction().showDialog({
       title: '确认删除',
       message: `删除信用账户「${this.creditAccounts[index].name}」？`,
       buttons: [
@@ -2177,7 +2176,7 @@ export struct WealthTab {
         confirmText: '添加',
         onConfirm: (name: string, target: number, saved: number, deadline: number) => {
           if (this.savingGoals.some(item => item.name === name)) {
-            promptAction.showToast({ message: '已存在同名目标', duration: 1500 });
+            this.getUIContext().getPromptAction().showToast({ message: '已存在同名目标', duration: 1500 });
             return;
           }
           const goal: SavingGoal = { id: Date.now(), name: name, target: target, saved: saved, deadline: deadline, records: [] };
@@ -2212,7 +2211,7 @@ export struct WealthTab {
         unitWan: useWan,
         onConfirm: (name: string, target: number, saved: number, deadline: number) => {
           if (name !== item.name && this.savingGoals.some(i => i.name === name)) {
-            promptAction.showToast({ message: '已存在同名目标', duration: 1500 });
+            this.getUIContext().getPromptAction().showToast({ message: '已存在同名目标', duration: 1500 });
             return;
           }
           animateTo({ curve: AnimationConfig.SPRING }, () => {
@@ -2244,7 +2243,7 @@ export struct WealthTab {
   }
 
   deleteSavingGoal(index: number): void {
-    promptAction.showDialog({
+    this.getUIContext().getPromptAction().showDialog({
       title: '确认删除',
       message: `删除存钱目标「${this.savingGoals[index].name}」？`,
       buttons: [

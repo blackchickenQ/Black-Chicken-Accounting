@@ -1,4 +1,4 @@
-import { router, promptAction } from '@kit.ArkUI';
+import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { hapticTick } from '../common/Haptics';
 import { AnimationConfig } from './Index';
@@ -120,7 +120,7 @@ struct GuideIntroPage {
     await setGuideIntroDone(context);
     if (!await isGuideDone(context)) {
       await finishGuide(context);
-      promptAction.showToast({
+      this.getUIContext().getPromptAction().showToast({
         message: '新手礼包：鸡蛋币 +50、樱花庭院场景已解锁！',
         duration: 3000
       });

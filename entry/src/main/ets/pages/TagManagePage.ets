@@ -1,6 +1,5 @@
 // pages/TagManagePage.ets
 import { router } from '@kit.ArkUI';
-import { promptAction } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { AnimationConfig } from './Index';
@@ -68,7 +67,7 @@ struct TagManagePage {
   }
 
   async deleteTag(tagName: string) {
-    const result = await promptAction.showDialog({
+    const result = await this.getUIContext().getPromptAction().showDialog({
       title: '确认删除',
       message: `删除标签「${tagName}」后，所有账单中的该标签将被移除，确定吗？`,
       buttons: [
@@ -122,16 +121,16 @@ struct TagManagePage {
       // 5. 通知 Index 页面重新加载（可选，但保留）
       AppStorage.setOrCreate('shouldRefreshBills', Date.now());
 
-      promptAction.showToast({ message: '标签已删除', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '标签已删除', duration: 1500 });
     } catch (e) {
       console.error('删除失败:', e);
-      promptAction.showToast({ message: '删除失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '删除失败', duration: 1500 });
     }
   }
 
   async renameTag(oldName: string, newName: string) {
     if (!newName || newName.trim().length === 0) {
-      promptAction.showToast({ message: '请输入新标签名', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '请输入新标签名', duration: 1500 });
       return;
     }
     if (oldName === newName.trim()) {
@@ -186,10 +185,10 @@ struct TagManagePage {
       });
 
       await this.loadTags();
-      promptAction.showToast({ message: '标签已更新', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '标签已更新', duration: 1500 });
     } catch (e) {
       console.error('重命名标签失败', e);
-      promptAction.showToast({ message: '更新失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '更新失败', duration: 1500 });
     }
   }
 
@@ -197,11 +196,11 @@ struct TagManagePage {
   // 清空所有标签
   async clearAllTags() {
     if (this.tagList.length === 0) {
-      promptAction.showToast({ message: '暂无标签可清空', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '暂无标签可清空', duration: 1500 });
       return;
     }
 
-    const result = await promptAction.showDialog({
+    const result = await this.getUIContext().getPromptAction().showDialog({
       title: '确认清空',
       message: `将删除所有标签（共 ${this.tagList.length} 个），并从所有账单中移除，确定吗？`,
       buttons: [
@@ -248,10 +247,10 @@ struct TagManagePage {
       AppStorage.setOrCreate('shouldRefreshBills', Date.now());
 
       // ✅ 7. 使用 tagCount，而不是 this.tagList.length
-      promptAction.showToast({ message: `已清空 ${tagCount} 个标签`, duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: `已清空 ${tagCount} 个标签`, duration: 1500 });
     } catch (e) {
       console.error('清空标签失败:', e);
-      promptAction.showToast({ message: '清空失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '清空失败', duration: 1500 });
     }
   }
 

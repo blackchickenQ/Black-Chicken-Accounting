@@ -1,4 +1,4 @@
-import { router, promptAction } from '@kit.ArkUI';
+import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import dataPreferences from '@ohos.data.preferences';
 import { loadEggCoins } from '../common/Gameplay';
@@ -144,7 +144,7 @@ struct PlaygroundPage {
     await accrueTree(this.context, this.selectedLedgerId);
     const bonus = await checkFullMonthBonus(this.context, this.selectedLedgerId);
     if (bonus > 0) {
-      promptAction.showToast({ message: `本月满勤！奖励 ${bonus} 鸡蛋币已到账`, duration: 2500 });
+      this.getUIContext().getPromptAction().showToast({ message: `本月满勤！奖励 ${bonus} 鸡蛋币已到账`, duration: 2500 });
     }
     await this.loadAll();
   }
@@ -248,9 +248,9 @@ struct PlaygroundPage {
   async onClaimCheckIn(): Promise<void> {
     const reward = await claimCheckInReward(this.context, this.selectedLedgerId);
     if (reward > 0) {
-      promptAction.showToast({ message: `签到奖励 ${reward} 鸡蛋币已到账`, duration: 1800 });
+      this.getUIContext().getPromptAction().showToast({ message: `签到奖励 ${reward} 鸡蛋币已到账`, duration: 1800 });
     } else {
-      promptAction.showToast({ message: '今天记一笔账再来打卡哦', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '今天记一笔账再来打卡哦', duration: 1500 });
     }
     await this.loadAll();
   }
@@ -259,9 +259,9 @@ struct PlaygroundPage {
   async onPlantTree(): Promise<void> {
     const ok = await plantTree(this.context, this.selectedLedgerId);
     if (ok) {
-      promptAction.showToast({ message: '种下了一棵摇钱树，每天记账浇水吧', duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: '种下了一棵摇钱树，每天记账浇水吧', duration: 2000 });
     } else {
-      promptAction.showToast({ message: `鸡蛋币不够（需 ${TREE_PLANT_COST} 币）`, duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: `鸡蛋币不够（需 ${TREE_PLANT_COST} 币）`, duration: 1500 });
     }
     await this.loadAll();
   }
@@ -269,7 +269,7 @@ struct PlaygroundPage {
   async onHarvestTree(): Promise<void> {
     const got = await harvestTree(this.context, this.selectedLedgerId);
     if (got > 0) {
-      promptAction.showToast({ message: `收取 ${got} 鸡蛋币`, duration: 1800 });
+      this.getUIContext().getPromptAction().showToast({ message: `收取 ${got} 鸡蛋币`, duration: 1800 });
     }
     await this.loadAll();
   }
@@ -278,11 +278,11 @@ struct PlaygroundPage {
   async onDrawBox(tier: BlindBoxTier): Promise<void> {
     const result = await drawBlindBox(this.context, this.selectedLedgerId, tier.id);
     if (result === null) {
-      promptAction.showToast({ message: '鸡蛋币不够啦', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '鸡蛋币不够啦', duration: 1500 });
       return;
     }
     const suffix: string = result.halfPrice ? '（今日半价）' : '';
-    promptAction.showDialog({
+    this.getUIContext().getPromptAction().showDialog({
       title: result.jackpot ? '彩蛋大奖！' : result.tierName,
       message: result.jackpot
         ? `开出 ${result.coins} 鸡蛋币！欧气爆棚！\n花费 ${result.cost} 币${suffix}`
@@ -296,7 +296,7 @@ struct PlaygroundPage {
   async onClaimGuardian(): Promise<void> {
     const reward = await claimGuardianReward(this.context, this.selectedLedgerId);
     if (reward > 0) {
-      promptAction.showToast({ message: `击败奖励 ${reward} 鸡蛋币 + 20 成长值`, duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: `击败奖励 ${reward} 鸡蛋币 + 20 成长值`, duration: 2000 });
     }
     await this.loadAll();
   }
@@ -305,18 +305,18 @@ struct PlaygroundPage {
   async onSaveLimit(): Promise<void> {
     const v = parseFloat(this.limitInput.length > 0 ? this.limitInput : '0');
     if (isNaN(v) || v < 0) {
-      promptAction.showToast({ message: '请输入有效的金额上限（可为 0）', duration: 1800 });
+      this.getUIContext().getPromptAction().showToast({ message: '请输入有效的金额上限（可为 0）', duration: 1800 });
       return;
     }
     await setNoSpendLimit(this.context, this.selectedLedgerId, v);
-    promptAction.showToast({ message: '每日消费上限已保存', duration: 1500 });
+    this.getUIContext().getPromptAction().showToast({ message: '每日消费上限已保存', duration: 1500 });
     await this.loadAll();
   }
 
   async onClaimNoSpend(): Promise<void> {
     const reward = await claimNoSpendReward(this.context, this.selectedLedgerId);
     if (reward > 0) {
-      promptAction.showToast({ message: `节流奖励 ${reward} 鸡蛋币已到账`, duration: 1800 });
+      this.getUIContext().getPromptAction().showToast({ message: `节流奖励 ${reward} 鸡蛋币已到账`, duration: 1800 });
     }
     await this.loadAll();
   }

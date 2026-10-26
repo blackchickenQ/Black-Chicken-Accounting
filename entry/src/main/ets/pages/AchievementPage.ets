@@ -1,5 +1,4 @@
 import { router } from '@kit.ArkUI';
-import { promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import dataPreferences from '@ohos.data.preferences';
 import { hapticTick } from '../common/Haptics';
@@ -151,7 +150,7 @@ struct AchievementPage {
     }
     if (fresh.length > 0) {
       const names: string[] = fresh.map((d: AchievementDef): string => d.name);
-      promptAction.showToast({ message: `小鸡捡到新宝贝：${names.join('、')}！`, duration: 2500 });
+      this.getUIContext().getPromptAction().showToast({ message: `小鸡捡到新宝贝：${names.join('、')}！`, duration: 2500 });
     }
     // 玩法数据：鸡蛋币 / 每日任务 / 鸡窝场景（进来看看小鸡也算完成今日任务）
     const firstVisitToday = await markDailyTask(this.context, 'visit_chick');
@@ -200,7 +199,7 @@ struct AchievementPage {
     if (reward > 0) {
       hapticTick();
       await this.refreshGameplayState();
-      promptAction.showToast({ message: `+${reward} 鸡蛋币已入账！`, duration: 1800 });
+      this.getUIContext().getPromptAction().showToast({ message: `+${reward} 鸡蛋币已入账！`, duration: 1800 });
     }
   }
 
@@ -221,7 +220,7 @@ struct AchievementPage {
     hapticTick();
     const f = await drawFortune(this.context);
     this.fortune = f;
-    promptAction.showToast({
+    this.getUIContext().getPromptAction().showToast({
       message: `今日运势：${FORTUNE_LEVEL_NAMES[f.level]}`,
       duration: 1800
     });
@@ -232,7 +231,7 @@ struct AchievementPage {
     if (reward > 0) {
       hapticTick();
       await this.refreshGameplayState();
-      promptAction.showToast({ message: `好运奖励 +${reward} 鸡蛋币！`, duration: 1800 });
+      this.getUIContext().getPromptAction().showToast({ message: `好运奖励 +${reward} 鸡蛋币！`, duration: 1800 });
     }
   }
 
@@ -250,7 +249,7 @@ struct AchievementPage {
         });
       }, 280);
       await this.refreshGameplayState();
-      promptAction.showToast({ message: `开罐啦！+${coins} 鸡蛋币！`, duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: `开罐啦！+${coins} 鸡蛋币！`, duration: 2000 });
     }
   }
 
@@ -275,10 +274,10 @@ struct AchievementPage {
 
   onStartTravel(dest: TravelDestination): void {
     if (this.eggCoins < dest.cost) {
-      promptAction.showToast({ message: '鸡蛋币不够啦，完成每日任务赚币吧', duration: 1800 });
+      this.getUIContext().getPromptAction().showToast({ message: '鸡蛋币不够啦，完成每日任务赚币吧', duration: 1800 });
       return;
     }
-    promptAction.showDialog({
+    this.getUIContext().getPromptAction().showDialog({
       title: '小鸡旅行',
       message: `花 ${dest.cost} 鸡蛋币送小鸡去「${dest.name}」？旅途中每记一笔账，归来提前 ${TRAVEL_BOOST_HOURS} 小时。`,
       buttons: [
@@ -289,12 +288,12 @@ struct AchievementPage {
       if (result.index === 1) {
         startTravel(this.context, dest.id).then((ok: boolean): void => {
           if (!ok) {
-            promptAction.showToast({ message: '出发失败，稍后再试', duration: 1500 });
+            this.getUIContext().getPromptAction().showToast({ message: '出发失败，稍后再试', duration: 1500 });
             return;
           }
           hapticTick();
           this.refreshGameplayState();
-          promptAction.showToast({ message: `小鸡出发去「${dest.name}」啦！`, duration: 1800 });
+          this.getUIContext().getPromptAction().showToast({ message: `小鸡出发去「${dest.name}」啦！`, duration: 1800 });
         });
       }
     }).catch(() => {});
@@ -311,7 +310,7 @@ struct AchievementPage {
       hapticTick();
       await this.refreshGameplayState();
       this.showBubble(`我回来啦！还带了${dest.souvenir}～`, 3000);
-      promptAction.showToast({
+      this.getUIContext().getPromptAction().showToast({
         message: `旅行归来！+${reward} 鸡蛋币，还带了${dest.souvenir}`,
         duration: 3000
       });
@@ -324,15 +323,15 @@ struct AchievementPage {
       hapticTick();
       useScene(this.context, def.id).then((): void => {
         this.refreshGameplayState();
-        promptAction.showToast({ message: `小鸡搬进「${def.name}」啦`, duration: 1500 });
+        this.getUIContext().getPromptAction().showToast({ message: `小鸡搬进「${def.name}」啦`, duration: 1500 });
       });
       return;
     }
     if (this.eggCoins < def.price) {
-      promptAction.showToast({ message: '鸡蛋币不够啦，完成每日任务赚币吧', duration: 1800 });
+      this.getUIContext().getPromptAction().showToast({ message: '鸡蛋币不够啦，完成每日任务赚币吧', duration: 1800 });
       return;
     }
-    promptAction.showDialog({
+    this.getUIContext().getPromptAction().showDialog({
       title: '装修鸡窝',
       message: `花 ${def.price} 鸡蛋币解锁「${def.name}」场景？`,
       buttons: [
@@ -343,13 +342,13 @@ struct AchievementPage {
       if (result.index === 1) {
         buyScene(this.context, def.id).then((ok: boolean): void => {
           if (!ok) {
-            promptAction.showToast({ message: '购买失败，稍后再试', duration: 1500 });
+            this.getUIContext().getPromptAction().showToast({ message: '购买失败，稍后再试', duration: 1500 });
             return;
           }
           useScene(this.context, def.id).then((): void => {
             hapticTick();
             this.refreshGameplayState();
-            promptAction.showToast({ message: `已解锁「${def.name}」，小鸡住进新家！`, duration: 1800 });
+            this.getUIContext().getPromptAction().showToast({ message: `已解锁「${def.name}」，小鸡住进新家！`, duration: 1800 });
           });
         });
       }
@@ -431,7 +430,7 @@ struct AchievementPage {
       });
       this.celebrating = true;
       this.showBubble('进化啦！我是' + this.currentStage().name + '！', 2600);
-      promptAction.showToast({ message: '小鸡进化：' + this.currentStage().name, duration: 2500 });
+      this.getUIContext().getPromptAction().showToast({ message: '小鸡进化：' + this.currentStage().name, duration: 2500 });
     }, 790);
     setTimeout(() => {
       this.celebrating = false;

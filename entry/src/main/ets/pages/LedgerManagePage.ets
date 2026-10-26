@@ -1,6 +1,5 @@
 // pages/LedgerManagePage.ets
 import { router } from '@kit.ArkUI';
-import { promptAction } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import {
@@ -223,7 +222,7 @@ struct LedgerManagePage {
       AppStorage.setOrCreate('shouldRefreshLedgers', Date.now());
     } catch (e) {
       console.error('保存账本失败: ' + JSON.stringify(e));
-      promptAction.showToast({ message: '保存失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '保存失败', duration: 1500 });
     }
   }
 
@@ -252,12 +251,12 @@ struct LedgerManagePage {
   async createLedger(name: string, icon: string, color: string): Promise<void> {
     const trimmed = name.trim();
     if (trimmed.length === 0) {
-      promptAction.showToast({ message: '请输入账本名称', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '请输入账本名称', duration: 1500 });
       return;
     }
     const duplicate = this.ledgers.some((item: LedgerItem) => item.name === trimmed);
     if (duplicate) {
-      promptAction.showToast({ message: '已存在同名账本', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '已存在同名账本', duration: 1500 });
       return;
     }
     const newLedger: LedgerItem = {
@@ -271,7 +270,7 @@ struct LedgerManagePage {
     };
     await this.saveLedgers([...this.ledgers, newLedger]);
     await this.loadData();
-    promptAction.showToast({ message: '账本已创建', duration: 1200 });
+    this.getUIContext().getPromptAction().showToast({ message: '账本已创建', duration: 1200 });
   }
 
   // ---------- 编辑 ----------
@@ -299,12 +298,12 @@ struct LedgerManagePage {
   async updateLedger(ledger: LedgerItem, name: string, icon: string, color: string): Promise<void> {
     const trimmed = name.trim();
     if (trimmed.length === 0) {
-      promptAction.showToast({ message: '请输入账本名称', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '请输入账本名称', duration: 1500 });
       return;
     }
     const duplicate = this.ledgers.some((item: LedgerItem) => item.id !== ledger.id && item.name === trimmed);
     if (duplicate) {
-      promptAction.showToast({ message: '已存在同名账本', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '已存在同名账本', duration: 1500 });
       return;
     }
     const updated = this.ledgers.map((item: LedgerItem) => {
@@ -324,18 +323,18 @@ struct LedgerManagePage {
     });
     await this.saveLedgers(updated);
     await this.loadData();
-    promptAction.showToast({ message: '账本已更新', duration: 1200 });
+    this.getUIContext().getPromptAction().showToast({ message: '账本已更新', duration: 1200 });
   }
 
   // ---------- 删除 ----------
   async deleteLedger(ledger: LedgerItem): Promise<void> {
     if (ledger.isDefault) {
-      promptAction.showToast({ message: '默认账本不可删除', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '默认账本不可删除', duration: 1500 });
       return;
     }
 
     const billCount = this.getBillCount(ledger.id);
-    const result = await promptAction.showDialog({
+    const result = await this.getUIContext().getPromptAction().showDialog({
       title: '确认删除',
       message: `删除账本「${ledger.name}」后，其中 ${billCount} 笔账单将归入默认账本，确定吗？`,
       buttons: [
@@ -398,10 +397,10 @@ struct LedgerManagePage {
 
       this.ledgers = updated;
       await this.loadData();
-      promptAction.showToast({ message: '账本已删除', duration: 1200 });
+      this.getUIContext().getPromptAction().showToast({ message: '账本已删除', duration: 1200 });
     } catch (e) {
       console.error('删除账本失败: ' + JSON.stringify(e));
-      promptAction.showToast({ message: '删除失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '删除失败', duration: 1500 });
     }
   }
 
@@ -409,11 +408,11 @@ struct LedgerManagePage {
   async clearLedgerBills(ledger: LedgerItem): Promise<void> {
     const billCount = this.getBillCount(ledger.id);
     if (billCount === 0) {
-      promptAction.showToast({ message: '该账本暂无账单', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '该账本暂无账单', duration: 1500 });
       return;
     }
 
-    const result = await promptAction.showDialog({
+    const result = await this.getUIContext().getPromptAction().showDialog({
       title: '确认清空',
       message: `将删除账本「${ledger.name}」中的 ${billCount} 笔账单，删除后不可恢复，确定吗？`,
       buttons: [
@@ -441,10 +440,10 @@ struct LedgerManagePage {
       AppStorage.setOrCreate('shouldRefreshBills', Date.now());
 
       this.billList = remaining;
-      promptAction.showToast({ message: `已清空 ${billCount} 笔账单`, duration: 1200 });
+      this.getUIContext().getPromptAction().showToast({ message: `已清空 ${billCount} 笔账单`, duration: 1200 });
     } catch (e) {
       console.error('清空账本账单失败: ' + JSON.stringify(e));
-      promptAction.showToast({ message: '清空失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '清空失败', duration: 1500 });
     }
   }
 

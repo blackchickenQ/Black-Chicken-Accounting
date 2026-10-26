@@ -16,7 +16,6 @@ import { util } from '@kit.ArkTS';
 import { window } from '@kit.ArkUI';
 import notificationManager from '@ohos.notificationManager';
 import { reminderAgentManager } from '@kit.BackgroundTasksKit';
-import { uiAppearance } from '@kit.ArkUI';
 import { CalendarTab } from './CalendarTab';
 import { WealthTab } from './WealthTab';
 import { CategoryManageParams } from './CategoryManagePage';
@@ -223,7 +222,7 @@ struct AddBillSheetContent {
     const trimmed = tag.trim();
     if (trimmed.length === 0) return;
     if (this.selectedTags.includes(trimmed)) {
-      promptAction.showToast({ message: '标签已存在', duration: 1000 });
+      this.getUIContext().getPromptAction().showToast({ message: '标签已存在', duration: 1000 });
       return;
     }
     this.selectedTags = [...this.selectedTags, trimmed];
@@ -665,12 +664,12 @@ struct AddBillSheetContent {
 
   private handleAddBill() {
     if (this.inputName.length === 0 || this.inputAmount.length === 0) {
-      promptAction.showToast({ message: '请填写完整信息！', duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: '请填写完整信息！', duration: 2000 });
       return;
     }
     const amountNum = parseFloat(this.inputAmount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      promptAction.showToast({ message: '金额必须是大于0的数字！', duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: '金额必须是大于0的数字！', duration: 2000 });
       return;
     }
     this.onAddBill(
@@ -804,7 +803,7 @@ struct EditBillSheetContent {
     const trimmed = tag.trim();
     if (trimmed.length === 0) return;
     if (this.selectedTags.includes(trimmed)) {
-      promptAction.showToast({ message: '标签已存在', duration: 1000 });
+      this.getUIContext().getPromptAction().showToast({ message: '标签已存在', duration: 1000 });
       return;
     }
     this.selectedTags = [...this.selectedTags, trimmed];
@@ -1215,12 +1214,12 @@ struct EditBillSheetContent {
   private handleUpdateBill() {
     console.info('📌 handleUpdateBill selectedTags:', this.selectedTags);
     if (this.internalName.length === 0 || this.internalAmount.length === 0) {
-      promptAction.showToast({ message: '请填写完整信息！', duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: '请填写完整信息！', duration: 2000 });
       return;
     }
     const amountNum = parseFloat(this.internalAmount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      promptAction.showToast({ message: '金额必须是大于0的数字！', duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: '金额必须是大于0的数字！', duration: 2000 });
       return;
     }
     this.onUpdateBill(
@@ -2635,7 +2634,7 @@ struct SetBudgetDialog {
           .onClick(() => {
             const amount = parseFloat(this.inputAmount);
             if (isNaN(amount) || amount <= 0) {
-              promptAction.showToast({ message: '请输入有效的预算金额', duration: 2000 });
+              this.getUIContext().getPromptAction().showToast({ message: '请输入有效的预算金额', duration: 2000 });
               return;
             }
             this.controller.close();
@@ -2794,7 +2793,7 @@ struct WeekPickerDialog {
           .layoutWeight(1)
           .onClick(() => {
             if (this.chosenDays.length === 0) {
-              promptAction.showToast({ message: '请至少选择一天', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '请至少选择一天', duration: 1500 });
               return;
             }
             this.controller.close();
@@ -3377,10 +3376,10 @@ struct Index {
       this.fingerprintUnlockEnabled = false;
       this.fingerprintAvailable = false;
       this.lockHintText = '';
-      promptAction.showToast({ message: '隐私锁已关闭', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '隐私锁已关闭', duration: 1500 });
     } catch (e) {
       console.error('关闭隐私锁失败: ' + JSON.stringify(e));
-      promptAction.showToast({ message: '关闭失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '关闭失败', duration: 1500 });
     }
   }
 
@@ -3536,7 +3535,7 @@ struct Index {
     if (!isOn) {
       this.fingerprintUnlockEnabled = false;
       await saveFingerprintUnlockEnabled(context, false);
-      promptAction.showToast({ message: '已关闭指纹解锁', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '已关闭指纹解锁', duration: 1500 });
       return;
     }
     if (!this.privacyLockEnabled) {
@@ -3547,7 +3546,7 @@ struct Index {
     }
     if (!this.checkFingerprintAvailable()) {
       this.fingerprintUnlockEnabled = false;
-      promptAction.showToast({ message: '设备未录入指纹，请先在系统设置中录入', duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: '设备未录入指纹，请先在系统设置中录入', duration: 2000 });
       return;
     }
     this.fingerprintToggleBusy = true;
@@ -3557,10 +3556,10 @@ struct Index {
       if (ok) {
         await saveFingerprintUnlockEnabled(context, true);
         this.fingerprintUnlockEnabled = true;
-        promptAction.showToast({ message: '指纹解锁已开启', duration: 1500 });
+        this.getUIContext().getPromptAction().showToast({ message: '指纹解锁已开启', duration: 1500 });
       } else {
         this.fingerprintUnlockEnabled = false;
-        promptAction.showToast({ message: '指纹验证未通过，未开启指纹解锁', duration: 2000 });
+        this.getUIContext().getPromptAction().showToast({ message: '指纹验证未通过，未开启指纹解锁', duration: 2000 });
       }
     });
   }
@@ -3660,7 +3659,7 @@ struct Index {
     if (ok) {
       this.lockBackupMode = false;
       this.performUnlockSuccess();
-      promptAction.showToast({ message: '已通过备用密码解锁', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '已通过备用密码解锁', duration: 1500 });
     } else {
       this.privacyLockFailedCount++;
       const left = 5 - this.privacyLockFailedCount;
@@ -3717,7 +3716,7 @@ struct Index {
 
   // 密码与备用密码均忘记：清除应用内全部数据并关闭隐私锁
   async clearAllDataAndResetLock(): Promise<void> {
-    const result = await promptAction.showDialog({
+    const result = await this.getUIContext().getPromptAction().showDialog({
       title: '清除数据',
       message: '密码与备用密码均无法找回。为关闭隐私锁，将清除应用内所有数据（账单、账本、预算、资产、标签等），清除后无法恢复。确定清除吗？',
       buttons: [
@@ -3766,10 +3765,10 @@ struct Index {
       this.updateLedgerBills();
       this.updateStatSummary();
       this.refreshWidgetCards();
-      promptAction.showToast({ message: '数据已清除，隐私锁已关闭', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '数据已清除，隐私锁已关闭', duration: 1500 });
     } catch (e) {
       console.error('清除数据失败: ' + JSON.stringify(e));
-      promptAction.showToast({ message: '清除失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '清除失败', duration: 1500 });
     }
   }
 
@@ -3784,10 +3783,10 @@ struct Index {
       await saveLockHint(context, hint);
       this.privacyLockEnabled = true;
       this.lockHintText = hint;
-      promptAction.showToast({ message: '隐私锁已开启', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '隐私锁已开启', duration: 1500 });
     } catch (e) {
       console.error('保存隐私锁密码失败: ' + JSON.stringify(e));
-      promptAction.showToast({ message: '设置失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '设置失败', duration: 1500 });
     }
   }
 
@@ -3796,7 +3795,7 @@ struct Index {
       this.pinSetupDialogController.open();
       return;
     }
-    const result = await promptAction.showDialog({
+    const result = await this.getUIContext().getPromptAction().showDialog({
       title: '隐私锁',
       message: '隐私锁已开启，可选择修改密码或关闭。',
       buttons: [
@@ -3829,7 +3828,7 @@ struct Index {
       return;
     }
     const displayName = this.huaweiAccount.nickname.length > 0 ? this.huaweiAccount.nickname : '已登录';
-    const result = await promptAction.showDialog({
+    const result = await this.getUIContext().getPromptAction().showDialog({
       title: '华为账号',
       message: `当前登录：${displayName}`,
       buttons: [
@@ -3843,7 +3842,7 @@ struct Index {
         await clearHuaweiAccountInfo(context);
       }
       this.huaweiAccount = undefined;
-      promptAction.showToast({ message: '已退出华为账号', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '已退出华为账号', duration: 1500 });
     }
   }
 
@@ -3860,7 +3859,7 @@ struct Index {
       const resp = data as authentication.AuthorizationWithHuaweiIDResponse;
       const respState = resp.state ?? '';
       if (respState !== authRequest.state) {
-        promptAction.showToast({ message: '登录异常，请重试', duration: 1500 });
+        this.getUIContext().getPromptAction().showToast({ message: '登录异常，请重试', duration: 1500 });
         return;
       }
       const credential = resp.data;
@@ -3870,7 +3869,7 @@ struct Index {
       info.nickname = credential?.nickName ?? '';
       info.avatarUri = credential?.avatarUri ?? '';
       if (info.openId.length === 0) {
-        promptAction.showToast({ message: '登录失败，未获取到账号标识', duration: 1500 });
+        this.getUIContext().getPromptAction().showToast({ message: '登录失败，未获取到账号标识', duration: 1500 });
         return;
       }
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -3878,18 +3877,18 @@ struct Index {
         await saveHuaweiAccountInfo(context, info);
       }
       this.huaweiAccount = info;
-      promptAction.showToast({ message: '华为账号登录成功', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '华为账号登录成功', duration: 1500 });
     } catch (e) {
       const err = e as BusinessError;
       console.error('华为账号登录失败: ' + JSON.stringify(err));
       if (err.code === 1001502001) {
-        promptAction.showToast({ message: '未登录华为账号，请先在系统设置中登录华为账号后重试', duration: 2000 });
+        this.getUIContext().getPromptAction().showToast({ message: '未登录华为账号，请先在系统设置中登录华为账号后重试', duration: 2000 });
       } else if (err.code === 1001502005) {
-        promptAction.showToast({ message: '网络异常，请检查网络后重试', duration: 2000 });
+        this.getUIContext().getPromptAction().showToast({ message: '网络异常，请检查网络后重试', duration: 2000 });
       } else if (err.code === 1001502012) {
         // 用户取消授权，无需提示
       } else {
-        promptAction.showToast({ message: '登录失败，请稍后重试', duration: 1500 });
+        this.getUIContext().getPromptAction().showToast({ message: '登录失败，请稍后重试', duration: 1500 });
       }
     }
   }
@@ -4851,17 +4850,17 @@ struct Index {
         const playground = await trackPlaygroundOnBill(context,
           bill.ledgerId ?? DEFAULT_LEDGER_ID, bill.amount, bill.type);
         if (playground.guardian === 'defeated') {
-          promptAction.showToast({ message: '吞金兽被击败！去小鸡页-玩法乐园领奖吧', duration: 2500 });
+          this.getUIContext().getPromptAction().showToast({ message: '吞金兽被击败！去小鸡页-玩法乐园领奖吧', duration: 2500 });
         } else if (playground.treeWithered) {
-          promptAction.showToast({ message: '摇钱树因断签枯萎了…重新种一棵吧', duration: 2500 });
+          this.getUIContext().getPromptAction().showToast({ message: '摇钱树因断签枯萎了…重新种一棵吧', duration: 2500 });
         }
       }
       const fresh = await checkAndUnlock(context, criteria);
       if (fresh.length > 0) {
         const names: string[] = fresh.map((d: AchievementDef): string => d.name);
-        promptAction.showToast({ message: `小鸡捡到新宝贝：${names.join('、')}！`, duration: 2500 });
+        this.getUIContext().getPromptAction().showToast({ message: `小鸡捡到新宝贝：${names.join('、')}！`, duration: 2500 });
       } else if (multiplier > 1) {
-        promptAction.showToast({
+        this.getUIContext().getPromptAction().showToast({
           message: `连续记账 ${criteria.streakDays} 天，成长值 +${gained}`,
           duration: 1800
         });
@@ -5504,7 +5503,7 @@ struct Index {
     });
 
     if (dayBills.length === 0) {
-      promptAction.showToast({ message: '这些天无支出', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '这些天无支出', duration: 1500 });
       return;
     }
 
@@ -5887,7 +5886,7 @@ struct Index {
   handleTrendClick(x: number, y: number) {
     const data = this.getStatTrendPoints();
     if (data.length < 2) {
-      promptAction.showToast({ message: '暂无趋势数据', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '暂无趋势数据', duration: 1500 });
       return;
     }
     const maxAmount = Math.max(...data.map(d => d.amount), 1);
@@ -5914,7 +5913,7 @@ struct Index {
     }
 
     if (hitIndexes.length === 0) {
-      promptAction.showToast({ message: '没有命中数据点', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '没有命中数据点', duration: 1500 });
       return;
     }
 
@@ -5929,7 +5928,7 @@ struct Index {
       this.showMultiDayDetailDialog(hitDays, s.getFullYear(), s.getMonth() + 1);
     } else if (nearestIndex >= 0) {
       const p = data[nearestIndex];
-      promptAction.showToast({ message: `${p.label} 支出 ¥${p.amount.toFixed(2)}`, duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: `${p.label} 支出 ¥${p.amount.toFixed(2)}`, duration: 1500 });
     }
   }
 
@@ -5948,7 +5947,7 @@ struct Index {
     });
 
     if (dayBills.length === 0) {
-      promptAction.showToast({ message: '当天无支出', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '当天无支出', duration: 1500 });
       return;
     }
 
@@ -6308,7 +6307,7 @@ struct Index {
     if (billToDelete) {
       this.updateAsset(billToDelete.source, billToDelete.type, billToDelete.amount, 'remove');
       this.moveToRecycleBin([billToDelete]);
-      promptAction.showToast({ message: '已移入回收站，30天内可恢复', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '已移入回收站，30天内可恢复', duration: 1500 });
     }
     this.refreshKey++;  // 强制刷新账单页分组列表（嵌套 ForEach 组键值需变化才会重渲染）
     this.saveBillsToPreferences();
@@ -6397,7 +6396,7 @@ struct Index {
 
     this.refreshKey++;
     this.updateChartIfNeeded();
-    promptAction.showToast({ message: '账单已更新', duration: 1500 });
+    this.getUIContext().getPromptAction().showToast({ message: '账单已更新', duration: 1500 });
     this.saveBillsToPreferences();
     this.loadBudget();
   }
@@ -6569,13 +6568,13 @@ struct Index {
       const err = e as BusinessError;
       console.error('请求通知授权失败: ' + JSON.stringify(err));
       this.setReminderOnAnimated(false);
-      promptAction.showToast({ message: '需要开启通知权限才能提醒，请在设置中允许通知', duration: 2500 });
+      this.getUIContext().getPromptAction().showToast({ message: '需要开启通知权限才能提醒，请在设置中允许通知', duration: 2500 });
       return;
     }
     const published = await this.publishBookkeepingReminder();
     if (published) {
       await this.saveReminderSettings();
-      promptAction.showToast({
+      this.getUIContext().getPromptAction().showToast({
         message: `记账提醒已开启，${this.formatReminderDays()} ${this.formatReminderTime()} 提醒你`,
         duration: 2500
       });
@@ -6591,12 +6590,12 @@ struct Index {
       console.error('取消记账提醒失败', e);
     }
     await this.saveReminderSettings();
-    promptAction.showToast({ message: '记账提醒已关闭', duration: 1500 });
+    this.getUIContext().getPromptAction().showToast({ message: '记账提醒已关闭', duration: 1500 });
   }
 
   async publishBookkeepingReminder(): Promise<boolean> {
     if (this.reminderDays.length === 0) {
-      promptAction.showToast({ message: '请至少选择一个提醒日', duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: '请至少选择一个提醒日', duration: 2000 });
       return false;
     }
     try {
@@ -6654,7 +6653,7 @@ struct Index {
       } else {
         msg = `提醒设置失败（错误码 ${err.code}），请稍后重试`;
       }
-      promptAction.showToast({ message: msg, duration: 3500 });
+      this.getUIContext().getPromptAction().showToast({ message: msg, duration: 3500 });
       return false;
     }
   }
@@ -6705,7 +6704,7 @@ struct Index {
 
   // 关于应用弹窗
   showAboutDialog() {
-    promptAction.showDialog({
+    this.getUIContext().getPromptAction().showDialog({
       title: '关于乌鸡记账',
       message: '乌鸡记账 v1.5.0\n\n用心记录每一笔，养肥你的小金库。\n\n© 2026 乌鸡工作室',
       buttons: [
@@ -6732,7 +6731,7 @@ struct Index {
       }
 
       if (billsToExport.length === 0) {
-        promptAction.showToast({ message: '没有账单可导出', duration: 2000 });
+        this.getUIContext().getPromptAction().showToast({ message: '没有账单可导出', duration: 2000 });
         return;
       }
 
@@ -6758,7 +6757,7 @@ struct Index {
           refundStr + ',' + escapeCsvField(orderStr) + '\n';
       }
 
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const cacheDir = context.cacheDir;
       const fileName = '账单导出_' + new Date().toISOString().slice(0, 10) + '.csv';
       const filePath = cacheDir + '/' + fileName;
@@ -6786,7 +6785,7 @@ struct Index {
     } catch (e) {
       const error = e as BusinessError;
       console.error('导出失败: code=' + error.code + ', message=' + error.message);
-      promptAction.showToast({ message: '导出失败，请重试', duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: '导出失败，请重试', duration: 2000 });
     }
   }
 
@@ -6832,14 +6831,14 @@ struct Index {
         previewMode: systemShare.SharePreviewMode.DEFAULT
       });
 
-      promptAction.showToast({ message: '备份文件已分享', duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: '备份文件已分享', duration: 2000 });
     } catch (error) {
       const err = error as BusinessError;
       if (err.code === 0) {
         return;
       }
       console.error('备份数据失败', err);
-      promptAction.showToast({ message: '备份失败', duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: '备份失败', duration: 2000 });
     }
   }
 
@@ -6872,12 +6871,12 @@ struct Index {
       // 校验数据
       if (!backupData.bills || !Array.isArray(backupData.bills) ||
         !backupData.assets || !Array.isArray(backupData.assets)) {
-        promptAction.showToast({ message: '无效的备份文件', duration: 2000 });
+        this.getUIContext().getPromptAction().showToast({ message: '无效的备份文件', duration: 2000 });
         return;
       }
 
       // 确认恢复
-      const result = await promptAction.showDialog({
+      const result = await this.getUIContext().getPromptAction().showDialog({
         title: '确认恢复数据',
         message: `将覆盖当前所有账单（${this.bills.length} 条）和资产数据，确定吗？`,
         buttons: [
@@ -6909,7 +6908,7 @@ struct Index {
       await this.loadTotalAsset();
       this.refreshKey++;
 
-      promptAction.showToast({ message: `恢复成功，共 ${backupData.bills.length} 条账单`, duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: `恢复成功，共 ${backupData.bills.length} 条账单`, duration: 2000 });
     } catch (error) {
       const err: BusinessError = error as BusinessError;
       if (err.code === 0) {
@@ -6921,7 +6920,7 @@ struct Index {
       if (err.message && err.message.includes('JSON')) {
         msg = '备份文件格式损坏，请检查文件内容';
       }
-      promptAction.showToast({ message: msg, duration: 3000 });
+      this.getUIContext().getPromptAction().showToast({ message: msg, duration: 3000 });
     }
   }
 
@@ -7066,7 +7065,7 @@ struct Index {
             if (result.refundUnmatchedCount > 0) {
               toastMsg += `，${result.refundUnmatchedCount} 笔退款未匹配到原账单`;
             }
-            promptAction.showToast({
+            this.getUIContext().getPromptAction().showToast({
               message: toastMsg,
               duration: 2000
             });
@@ -7085,7 +7084,7 @@ struct Index {
           this.isLoading = false;
           const err: BusinessError = error as BusinessError;
           console.error('导入失败: ' + err.message);
-          promptAction.showToast({ message: '导入失败: ' + err.message, duration: 2000 });
+          this.getUIContext().getPromptAction().showToast({ message: '导入失败: ' + err.message, duration: 2000 });
         }
       }, 50);
 
@@ -7096,7 +7095,7 @@ struct Index {
       this.isLoading = false;
       const err: BusinessError = error as BusinessError;
       console.error('导入失败: ' + err.message);
-      promptAction.showToast({ message: '导入失败: ' + err.message, duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: '导入失败: ' + err.message, duration: 2000 });
     }
   }
 
@@ -7104,11 +7103,11 @@ struct Index {
   showDeleteConfirmDialog() {
     const billsToDelete: BillItem[] = this.getBillViewBills();
     if (billsToDelete.length === 0) {
-      promptAction.showToast({ message: '当前没有可删除的账单', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '当前没有可删除的账单', duration: 1500 });
       return;
     }
 
-    promptAction.showDialog({
+    this.getUIContext().getPromptAction().showDialog({
       title: '确认删除',
       message: `将删除当前筛选条件下的 ${billsToDelete.length} 条账单，删除后可在回收站恢复，确定吗？`,
       buttons: [
@@ -7136,7 +7135,7 @@ struct Index {
     await this.applyAssetsBatch(billsToDelete, 'remove');
     await this.moveToRecycleBin(billsToDelete);
     this.saveBillsToPreferences();
-    promptAction.showToast({
+    this.getUIContext().getPromptAction().showToast({
       message: `已移入回收站 ${billsToDelete.length} 条账单`,
       duration: 1500
     });
@@ -7204,7 +7203,7 @@ struct Index {
           this.saveBudget(amount).then((): void => {
             this.loadReminderData();  // 预算变更立即刷新提醒角标
           });
-          promptAction.showToast({ message: '预算已设置', duration: 1500 });
+          this.getUIContext().getPromptAction().showToast({ message: '预算已设置', duration: 1500 });
         }
       }),
       autoCancel: true,

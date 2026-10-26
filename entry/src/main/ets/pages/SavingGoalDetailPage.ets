@@ -1,4 +1,4 @@
-import { router, promptAction } from '@kit.ArkUI';
+import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import dataPreferences from '@ohos.data.preferences';
 import { hapticTick } from '../common/Haptics';
@@ -143,7 +143,7 @@ struct GoalDepositDialog {
             } else {
               const raw = parseFloat(this.customAmount);
               if (isNaN(raw) || raw <= 0) {
-                promptAction.showToast({ message: '请选择或输入有效金额', duration: 1500 });
+                this.getUIContext().getPromptAction().showToast({ message: '请选择或输入有效金额', duration: 1500 });
                 return;
               }
               amount = Math.round(raw * 100) / 100;
@@ -212,7 +212,7 @@ struct GoalDiaryDialog {
           .onClick(() => {
             const note = this.text.trim();
             if (note.length === 0) {
-              promptAction.showToast({ message: '写点什么再保存吧', duration: 1500 });
+              this.getUIContext().getPromptAction().showToast({ message: '写点什么再保存吧', duration: 1500 });
               return;
             }
             this.onConfirm(note);
@@ -280,7 +280,7 @@ struct SavingGoalDetailPage {
       const parsed = JSON.parse(data) as SavingGoal[];
       const found = parsed.find((g: SavingGoal): boolean => g.id === this.goalId);
       if (found === undefined) {
-        promptAction.showToast({ message: '目标不存在或已删除', duration: 1500 });
+        this.getUIContext().getPromptAction().showToast({ message: '目标不存在或已删除', duration: 1500 });
         router.back();
         return;
       }
@@ -452,7 +452,7 @@ struct SavingGoalDetailPage {
   celebrate(): void {
     hapticTick();
     this.celebrating = true;
-    promptAction.showToast({ message: '目标达成！这段攒钱旅程圆满了', duration: 2500 });
+    this.getUIContext().getPromptAction().showToast({ message: '目标达成！这段攒钱旅程圆满了', duration: 2500 });
     setTimeout(() => {
       this.celebrating = false;
     }, 3200);

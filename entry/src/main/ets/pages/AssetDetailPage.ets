@@ -1,4 +1,3 @@
-import { promptAction } from '@kit.ArkUI';
 import { router } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
@@ -82,11 +81,11 @@ struct InputDialog {
             const name = this.inputName.trim();
             const amount = parseFloat(this.inputAmount);
             if (!name) {
-              promptAction.showToast({ message: '请输入分类名称', duration: 2000 });
+              this.getUIContext().getPromptAction().showToast({ message: '请输入分类名称', duration: 2000 });
               return;
             }
             if (isNaN(amount) || amount < 0) {
-              promptAction.showToast({ message: '请输入有效金额', duration: 2000 });
+              this.getUIContext().getPromptAction().showToast({ message: '请输入有效金额', duration: 2000 });
               return;
             }
             this.onConfirm(name, amount);
@@ -161,7 +160,7 @@ struct AssetDetailPage {
         confirmText: '添加',
         onConfirm: (name: string, amount: number) => {
           if (this.assetList.some(item => item.name === name)) {
-            promptAction.showToast({ message: '分类已存在', duration: 2000 });
+            this.getUIContext().getPromptAction().showToast({ message: '分类已存在', duration: 2000 });
             return;
           }
           animateTo({ curve: AnimationConfig.SPRING }, () => {
@@ -195,7 +194,7 @@ struct AssetDetailPage {
         inputAmount: item.amount.toString(),
         onConfirm: (name: string, amount: number) => {
           if (name !== item.name && this.assetList.some(i => i.name === name)) {
-            promptAction.showToast({ message: '分类名已存在', duration: 2000 });
+            this.getUIContext().getPromptAction().showToast({ message: '分类名已存在', duration: 2000 });
             return;
           }
           const idx: number = this.assetList.indexOf(item);
@@ -228,7 +227,7 @@ struct AssetDetailPage {
     if (index < 0 || index >= this.assetList.length) {
       return;
     }
-    promptAction.showDialog({
+    this.getUIContext().getPromptAction().showDialog({
       title: '确认删除',
       message: `删除分类“${item.name}”？`,
       buttons: [

@@ -1,6 +1,5 @@
 // pages/RecycleBinPage.ets
 import { router } from '@kit.ArkUI';
-import { promptAction } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { BillItem, RecycleBillItem, getCategoryColor, AnimationConfig } from './Index';
@@ -111,15 +110,15 @@ struct RecycleBinPage {
 
       await this.applyAssetOnRestore(item.bill);
       AppStorage.setOrCreate('shouldRefreshBills', Date.now());
-      promptAction.showToast({ message: '账单已恢复', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '账单已恢复', duration: 1500 });
     } catch (e) {
       console.error('恢复账单失败: ' + JSON.stringify(e));
-      promptAction.showToast({ message: '恢复失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '恢复失败', duration: 1500 });
     }
   }
 
   async permanentDelete(item: RecycleBillItem): Promise<void> {
-    const result = await promptAction.showDialog({
+    const result = await this.getUIContext().getPromptAction().showDialog({
       title: '确认删除',
       message: `将彻底删除「${item.bill.name}」，删除后无法恢复，确定吗？`,
       buttons: [
@@ -139,16 +138,16 @@ struct RecycleBinPage {
     animateTo({ curve: AnimationConfig.SPRING }, () => {
       this.recycleItems = rest;
     });
-    promptAction.showToast({ message: '已彻底删除', duration: 1200 });
+    this.getUIContext().getPromptAction().showToast({ message: '已彻底删除', duration: 1200 });
   }
 
   async clearAll(): Promise<void> {
     if (this.recycleItems.length === 0) {
-      promptAction.showToast({ message: '回收站已是空的', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '回收站已是空的', duration: 1500 });
       return;
     }
     const count = this.recycleItems.length;
-    const result = await promptAction.showDialog({
+    const result = await this.getUIContext().getPromptAction().showDialog({
       title: '确认清空',
       message: `将彻底删除回收站中的 ${count} 条账单，删除后无法恢复，确定吗？`,
       buttons: [
@@ -169,7 +168,7 @@ struct RecycleBinPage {
     animateTo({ curve: AnimationConfig.SPRING }, () => {
       this.recycleItems = [];
     });
-    promptAction.showToast({ message: `已清空 ${count} 条账单`, duration: 1500 });
+    this.getUIContext().getPromptAction().showToast({ message: `已清空 ${count} 条账单`, duration: 1500 });
   }
 
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中

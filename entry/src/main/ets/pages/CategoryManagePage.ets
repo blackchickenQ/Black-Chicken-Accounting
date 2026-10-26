@@ -1,6 +1,5 @@
 // pages/CategoryManagePage.ets
 import { router } from '@kit.ArkUI';
-import { promptAction } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { LedgerItem, BillItem, DEFAULT_LEDGER_ID, getCategoryColor, AnimationConfig } from './Index';
@@ -93,7 +92,7 @@ struct CategoryManagePage {
       AppStorage.setOrCreate('shouldRefreshLedgers', Date.now());
     } catch (e) {
       console.error('保存分类失败: ' + JSON.stringify(e));
-      promptAction.showToast({ message: '保存失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '保存失败', duration: 1500 });
     }
   }
 
@@ -101,24 +100,24 @@ struct CategoryManagePage {
   async addCategory(): Promise<void> {
     const name = this.newCategoryName.trim();
     if (name.length === 0) {
-      promptAction.showToast({ message: '请输入分类名称', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '请输入分类名称', duration: 1500 });
       return;
     }
     if (this.categories.indexOf(name) !== -1) {
-      promptAction.showToast({ message: '该分类已存在', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '该分类已存在', duration: 1500 });
       return;
     }
     const updated: string[] = [...this.categories, name];
     this.newCategoryName = '';
     await this.saveCategories(updated);
-    promptAction.showToast({ message: '分类已添加', duration: 1200 });
+    this.getUIContext().getPromptAction().showToast({ message: '分类已添加', duration: 1200 });
   }
 
   // ---------- 改 ----------
   async renameCategory(oldName: string, newName: string): Promise<void> {
     const name = newName.trim();
     if (name.length === 0) {
-      promptAction.showToast({ message: '请输入分类名称', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '请输入分类名称', duration: 1500 });
       return;
     }
     if (name === oldName) {
@@ -128,7 +127,7 @@ struct CategoryManagePage {
       return;
     }
     if (this.categories.indexOf(name) !== -1) {
-      promptAction.showToast({ message: '该分类已存在', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '该分类已存在', duration: 1500 });
       return;
     }
 
@@ -165,10 +164,10 @@ struct CategoryManagePage {
         this.editingCategory = '';
       });
       await this.loadData();
-      promptAction.showToast({ message: '分类已更新', duration: 1200 });
+      this.getUIContext().getPromptAction().showToast({ message: '分类已更新', duration: 1200 });
     } catch (e) {
       console.error('重命名分类失败: ' + JSON.stringify(e));
-      promptAction.showToast({ message: '更新失败', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '更新失败', duration: 1500 });
     }
   }
 
@@ -176,18 +175,18 @@ struct CategoryManagePage {
   async deleteCategory(name: string): Promise<void> {
     const usage = this.getCategoryUsage(name);
     if (usage > 0) {
-      promptAction.showToast({
+      this.getUIContext().getPromptAction().showToast({
         message: `有 ${usage} 笔账单正在使用「${name}」，无法删除`,
         duration: 2000
       });
       return;
     }
     if (this.categories.length <= 1) {
-      promptAction.showToast({ message: '至少保留一个分类', duration: 1500 });
+      this.getUIContext().getPromptAction().showToast({ message: '至少保留一个分类', duration: 1500 });
       return;
     }
 
-    const result = await promptAction.showDialog({
+    const result = await this.getUIContext().getPromptAction().showDialog({
       title: '确认删除',
       message: `确定删除分类「${name}」吗？`,
       buttons: [
@@ -201,7 +200,7 @@ struct CategoryManagePage {
 
     const updated = this.categories.filter((item: string) => item !== name);
     await this.saveCategories(updated);
-    promptAction.showToast({ message: '分类已删除', duration: 1200 });
+    this.getUIContext().getPromptAction().showToast({ message: '分类已删除', duration: 1200 });
   }
 
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中

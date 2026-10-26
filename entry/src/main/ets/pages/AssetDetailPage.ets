@@ -3,6 +3,7 @@ import { common } from '@kit.AbilityKit';
 import { AnimationConfig } from './Index';
 import { ASSET_PALETTE } from '../common/AppTheme';
 import { MotionCurves } from '../common/Motion';
+import { BrandSignals, DeviceSignals } from '../common/V2Signals';
 
 interface AssetCategory {
   name: string;
@@ -99,17 +100,19 @@ struct InputDialog {
   }
 }
 
-@Component
+@ComponentV2
 struct AssetDetailPage {
   // 所在导航栈：由 NavDestination.onReady 注入
   pathStack: NavPathStack = new NavPathStack();
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @State assetList: AssetCategory[] = [];
-  @State refreshKey: number = 0;   // ✅ 新增刷新标志
-  @State pressedSummary: boolean = false;
-  @State pressedChipKey: string = '';
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Local assetList: AssetCategory[] = [];
+  @Local refreshKey: number = 0;   // ✅ 新增刷新标志
+  @Local pressedSummary: boolean = false;
+  @Local pressedChipKey: string = '';
   // 小眼睛：控制金额显示/隐藏（隐藏时显示 ¥****）
-  @State amountVisible: boolean = true;
+  @Local amountVisible: boolean = true;
   private context = this.getUIContext().getHostContext() as common.UIAbilityContext;
   private inputDialogController: CustomDialogController | null = null;
 
@@ -250,12 +253,11 @@ struct AssetDetailPage {
     });
   }
 
-  // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
-  @StorageProp('isWideScreen') isWideScreen: boolean = false;
-
-  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
-  @StorageProp('statusBarVp') statusBarVp: number = 46;
-  @StorageProp('navBarVp') navBarVp: number = 28;
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local devSignals: DeviceSignals = DeviceSignals.connect();
+  @Computed get isWideScreen(): boolean { return this.devSignals.isWideScreen; }
+  @Computed get statusBarVp(): number { return this.devSignals.statusBarVp; }
+  @Computed get navBarVp(): number { return this.devSignals.navBarVp; }
 
   build() {
     NavDestination() {

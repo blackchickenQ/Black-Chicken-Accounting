@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { hapticTick } from '../common/Haptics';
 import { AnimationConfig } from './Index';
 import { MotionCurves } from '../common/Motion';
+import { BrandSignals, DeviceSignals } from '../common/V2Signals';
 import {
   setGuideIntroDone,
   isGuideDone,
@@ -73,14 +74,19 @@ const INTRO_PAGES: IntroPageDef[] = [
 // 引导介绍页：首启展示（Index.aboutToAppear 检测 guide_intro_done 后压入），
 // 也可从「设置 → 新手引导」重新体验；完成后 pop 回上级（首页或设置页）
 // 页面切换不用 Swiper，改用键控内容 + 过渡动画：点击/滑动均可靠，动画更 Q 弹
-@Component
+@ComponentV2
 struct GuideIntroPage {
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @State curPage: number = 0;
-  @State imageBreath: number = 1;
-  @State nextBtnScale: number = 1;
-  @State skipBtnScale: number = 1;
-  @State pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Local devSignals: DeviceSignals = DeviceSignals.connect();
+  @Computed get statusBarVp(): number { return this.devSignals.statusBarVp; }
+  @Computed get navBarVp(): number { return this.devSignals.navBarVp; }
+  @Local curPage: number = 0;
+  @Local imageBreath: number = 1;
+  @Local nextBtnScale: number = 1;
+  @Local skipBtnScale: number = 1;
+  @Local pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
   // 所在导航栈：由 NavDestination.onReady 注入
   pathStack: NavPathStack = new NavPathStack();
 
@@ -126,10 +132,6 @@ struct GuideIntroPage {
     }
     this.pathStack.pop();
   }
-
-  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
-  @StorageProp('statusBarVp') statusBarVp: number = 46;
-  @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
     NavDestination() {

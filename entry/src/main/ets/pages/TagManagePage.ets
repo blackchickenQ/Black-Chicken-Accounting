@@ -3,6 +3,7 @@ import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { AnimationConfig } from './Index';
 import { MotionCurves } from '../common/Motion';
+import { BrandSignals, DeviceSignals } from '../common/V2Signals';
 
 
 interface BillItem {
@@ -21,16 +22,22 @@ interface TagItem {
   count: number;  // 使用次数
 }
 
-@Component
+@ComponentV2
 struct TagManagePage {
   // 所在导航栈：由 NavDestination.onReady 注入
   pathStack: NavPathStack = new NavPathStack();
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @StorageProp('brand_tint') brandTint: string = '#EEF1FE';
-  @State tagList: TagItem[] = [];
-  @State editTagName: string = '';
-  @State editingTag: string = '';
-  @State pressedChipKey: string = '';
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Computed get brandTint(): string { return this.brandSignals.tint; }
+  @Local devSignals: DeviceSignals = DeviceSignals.connect();
+  @Computed get isWideScreen(): boolean { return this.devSignals.isWideScreen; }
+  @Computed get statusBarVp(): number { return this.devSignals.statusBarVp; }
+  @Computed get navBarVp(): number { return this.devSignals.navBarVp; }
+  @Local tagList: TagItem[] = [];
+  @Local editTagName: string = '';
+  @Local editingTag: string = '';
+  @Local pressedChipKey: string = '';
 
   async aboutToAppear() {
     await this.loadTags();
@@ -253,13 +260,6 @@ struct TagManagePage {
       this.getUIContext().getPromptAction().showToast({ message: '清空失败', duration: 1500 });
     }
   }
-
-  // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
-  @StorageProp('isWideScreen') isWideScreen: boolean = false;
-
-  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
-  @StorageProp('statusBarVp') statusBarVp: number = 46;
-  @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
     NavDestination() {

@@ -4,6 +4,7 @@ import { common } from '@kit.AbilityKit';
 import { BillItem, RecycleBillItem, getCategoryColor, AnimationConfig } from './Index';
 import { deleteBillPhotos } from '../common/BillPhotos';
 import { MotionCurves } from '../common/Motion';
+import { BrandSignals, DeviceSignals } from '../common/V2Signals';
 
 const RECYCLE_KEY: string = 'recycle_bills';
 const RETENTION_DAYS: number = 30;
@@ -14,13 +15,19 @@ interface AssetCategory {
   amount: number;
 }
 
-@Component
+@ComponentV2
 struct RecycleBinPage {
   // 所在导航栈：由 NavDestination.onReady 注入
   pathStack: NavPathStack = new NavPathStack();
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @State recycleItems: RecycleBillItem[] = [];
-  @State pressedChipKey: string = '';
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Local devSignals: DeviceSignals = DeviceSignals.connect();
+  @Computed get isWideScreen(): boolean { return this.devSignals.isWideScreen; }
+  @Computed get statusBarVp(): number { return this.devSignals.statusBarVp; }
+  @Computed get navBarVp(): number { return this.devSignals.navBarVp; }
+  @Local recycleItems: RecycleBillItem[] = [];
+  @Local pressedChipKey: string = '';
 
   aboutToAppear() {
     this.loadAndPurge();
@@ -170,13 +177,6 @@ struct RecycleBinPage {
     });
     this.getUIContext().getPromptAction().showToast({ message: `已清空 ${count} 条账单`, duration: 1500 });
   }
-
-  // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
-  @StorageProp('isWideScreen') isWideScreen: boolean = false;
-
-  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
-  @StorageProp('statusBarVp') statusBarVp: number = 46;
-  @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
     NavDestination() {

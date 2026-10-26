@@ -4,6 +4,7 @@ import { hapticTick } from '../common/Haptics';
 import { HandIcon } from '../common/HandIcon';
 import { AnimationConfig } from './Index';
 import { MotionCurves } from '../common/Motion';
+import { BrandSignals, DeviceSignals } from '../common/V2Signals';
 import {
   ACHIEVEMENT_DEFS,
   getLevelInfo,
@@ -62,18 +63,20 @@ import {
 } from '../common/Gameplay';
 
 // ========== 小鸡养成页：小鸡舞台（等级/形态）+ 宝藏网格（原勋章墙） ==========
-@Component
+@ComponentV2
 struct AchievementPage {
   // 所在导航栈：由 NavDestination.onReady 注入
   pathStack: NavPathStack = new NavPathStack();
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @StorageProp('brand_tint') brandTint: string = '#EEF1FE';
-  @State userXp: number = 0;
-  @State unlockedIds: string[] = [];
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Computed get brandTint(): string { return this.brandSignals.tint; }
+  @Local userXp: number = 0;
+  @Local unlockedIds: string[] = [];
   // 成长值进度条填充动画值；宝藏网格就绪后才揭示，触发交错入场
-  @State xpProgressValue: number = 0;
-  @State gridReady: boolean = false;
-  @State criteria: AchievementCriteria = {
+  @Local xpProgressValue: number = 0;
+  @Local gridReady: boolean = false;
+  @Local criteria: AchievementCriteria = {
     billCount: 0,
     incomeCount: 0,
     expenseTotal: 0,
@@ -85,33 +88,33 @@ struct AchievementPage {
     guideDone: false
   };
   // ---------- 玩法状态：鸡蛋币 / 每日任务 / 鸡窝场景 ----------
-  @State eggCoins: number = 0;
-  @State taskDone: string[] = [];
-  @State taskClaimed: string[] = [];
-  @State sceneOwned: string[] = ['default'];
-  @State sceneUsing: string = 'default';
-  @State taskCardReady: boolean = false;
-  @State stageViewIndex: number = 0;
+  @Local eggCoins: number = 0;
+  @Local taskDone: string[] = [];
+  @Local taskClaimed: string[] = [];
+  @Local sceneOwned: string[] = ['default'];
+  @Local sceneUsing: string = 'default';
+  @Local taskCardReady: boolean = false;
+  @Local stageViewIndex: number = 0;
   // ---------- 玩法状态：存钱罐 / 小鸡旅行 / 鸡运签 / 月度报告 ----------
-  @State piggy: PiggyBankState = { coins: 0, capacity: PIGGY_CAPACITY };
-  @State travel: TravelState | null = null;
-  @State fortune: FortuneState | null = null;
-  @State report: MonthlyReportData | null = null;
-  @State piggyPop: number = 1;
-  @State pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
+  @Local piggy: PiggyBankState = { coins: 0, capacity: PIGGY_CAPACITY };
+  @Local travel: TravelState | null = null;
+  @Local fortune: FortuneState | null = null;
+  @Local report: MonthlyReportData | null = null;
+  @Local piggyPop: number = 1;
+  @Local pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
 
   // ---------- 小鸡动画状态 ----------
-  @State chickBreathe: number = 1;    // 待机呼吸缩放
-  @State chickJumpY: number = 0;      // 点击跳跃位移
-  @State chickRotate: number = 0;     // 摇摆/啄米角度
-  @State chickScaleBoost: number = 1; // 进化瞬间放大
-  @State betaPulse: number = 1;      // Beta 徽标呼吸缩放
-  @State bubbleText: string = '';     // 台词气泡
-  @State bubbleVisible: boolean = false;
-  @State feeding: boolean = false;    // 喂食动画中
-  @State feedY: number = -70;         // 米粒下落位移
-  @State evolveGlow: boolean = false; // 进化金光
-  @State celebrating: boolean = false; // 进化庆祝
+  @Local chickBreathe: number = 1;    // 待机呼吸缩放
+  @Local chickJumpY: number = 0;      // 点击跳跃位移
+  @Local chickRotate: number = 0;     // 摇摆/啄米角度
+  @Local chickScaleBoost: number = 1; // 进化瞬间放大
+  @Local betaPulse: number = 1;      // Beta 徽标呼吸缩放
+  @Local bubbleText: string = '';     // 台词气泡
+  @Local bubbleVisible: boolean = false;
+  @Local feeding: boolean = false;    // 喂食动画中
+  @Local feedY: number = -70;         // 米粒下落位移
+  @Local evolveGlow: boolean = false; // 进化金光
+  @Local celebrating: boolean = false; // 进化庆祝
   private bubbleTimer: number = -1;
   private context = this.getUIContext().getHostContext() as common.UIAbilityContext;
 
@@ -541,8 +544,9 @@ struct AchievementPage {
     return v.toString();
   }
 
-  // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
-  @StorageProp('isWideScreen') isWideScreen: boolean = false;
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local devSignals: DeviceSignals = DeviceSignals.connect();
+  @Computed get isWideScreen(): boolean { return this.devSignals.isWideScreen; }
 
   @Builder
   TapeDeco() {
@@ -555,9 +559,8 @@ struct AchievementPage {
       .rotate({ angle: -6 })
   }
 
-  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
-  @StorageProp('statusBarVp') statusBarVp: number = 46;
-  @StorageProp('navBarVp') navBarVp: number = 28;
+  @Computed get statusBarVp(): number { return this.devSignals.statusBarVp; }
+  @Computed get navBarVp(): number { return this.devSignals.navBarVp; }
 
   build() {
     NavDestination() {

@@ -3,25 +3,32 @@ import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { LedgerItem, BillItem, DEFAULT_LEDGER_ID, getCategoryColor, AnimationConfig } from './Index';
 import { MotionCurves } from '../common/Motion';
+import { BrandSignals, DeviceSignals } from '../common/V2Signals';
 
 // 路由参数：目标账本 id
 export interface CategoryManageParams {
   ledgerId: number;
 }
 
-@Component
+@ComponentV2
 struct CategoryManagePage {
   // 所在导航栈：由 NavDestination.onReady 注入
   pathStack: NavPathStack = new NavPathStack();
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @State ledgerId: number = DEFAULT_LEDGER_ID;
-  @State ledgerName: string = '';
-  @State categories: string[] = [];
-  @State billList: BillItem[] = [];
-  @State newCategoryName: string = '';
-  @State editingCategory: string = '';
-  @State editCategoryName: string = '';
-  @State pressedChipKey: string = '';
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Local devSignals: DeviceSignals = DeviceSignals.connect();
+  @Computed get isWideScreen(): boolean { return this.devSignals.isWideScreen; }
+  @Computed get statusBarVp(): number { return this.devSignals.statusBarVp; }
+  @Computed get navBarVp(): number { return this.devSignals.navBarVp; }
+  @Param @Once ledgerId: number = DEFAULT_LEDGER_ID;
+  @Local ledgerName: string = '';
+  @Local categories: string[] = [];
+  @Local billList: BillItem[] = [];
+  @Local newCategoryName: string = '';
+  @Local editingCategory: string = '';
+  @Local editCategoryName: string = '';
+  @Local pressedChipKey: string = '';
 
   async aboutToAppear() {
     await this.loadData();
@@ -198,13 +205,6 @@ struct CategoryManagePage {
     await this.saveCategories(updated);
     this.getUIContext().getPromptAction().showToast({ message: '分类已删除', duration: 1200 });
   }
-
-  // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
-  @StorageProp('isWideScreen') isWideScreen: boolean = false;
-
-  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
-  @StorageProp('statusBarVp') statusBarVp: number = 46;
-  @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
     NavDestination() {

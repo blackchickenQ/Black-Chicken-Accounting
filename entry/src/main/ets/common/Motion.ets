@@ -17,13 +17,14 @@ export class MotionCurves {
 // ---------- 按压回弹包装组件 ----------
 // 用法：BounceTouch({ pressScale: 0.94 }) { 你的卡片/按钮内容 }
 // 触摸按下时内容缩小，松手后以弹簧曲线回弹，带轻微触感反馈
-@Component
+// V2 状态管理：@Param 父组件传参（单向同步）+ @Local 按压内部状态
+@ComponentV2
 export struct BounceTouch {
   // 按下时的缩放比例：按钮建议 0.92-0.95，卡片建议 0.97
-  @Prop pressScale: number = 0.94;
+  @Param pressScale: number = 0.94;
   // 按下时是否触发触感反馈
-  @Prop hapticOnPress: boolean = false;
-  @State private isPressed: boolean = false;
+  @Param hapticOnPress: boolean = false;
+  @Local isPressed: boolean = false;
   @BuilderParam content: () => void;
 
   build() {

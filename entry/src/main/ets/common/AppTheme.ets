@@ -1,4 +1,5 @@
 // ---------- 共享 UI 常量（调色板 / 图表配色） ----------
+import { BrandSignals } from './V2Signals';
 
 // 资产/账单列表项色点调色板（15 色，按索引轮转）
 export const ASSET_PALETTE: string[] = [
@@ -102,7 +103,8 @@ export const BRAND_THEMES: BrandThemePreset[] = [
   }
 ];
 
-// 将指定主题的品牌色写入 AppStorage（全局组件通过 @StorageProp 响应刷新）
+// 将指定主题的品牌色写入 AppStorage（全局组件通过 @StorageProp 响应刷新）；
+// 同时双写 AppStorageV2 包装类（BrandSignals），供已迁移 @ComponentV2 的组件响应刷新
 export function applyBrandTheme(index: number, isDark: boolean): void {
   const safeIndex: number = Math.max(0, Math.min(BRAND_THEMES.length - 1, index));
   const preset: BrandThemePreset = BRAND_THEMES[safeIndex];
@@ -111,4 +113,9 @@ export function applyBrandTheme(index: number, isDark: boolean): void {
   AppStorage.setOrCreate('brand_light', set.light);
   AppStorage.setOrCreate('brand_deep', set.deep);
   AppStorage.setOrCreate('brand_tint', set.tint);
+  const brandV2 = BrandSignals.connect();
+  brandV2.main = set.main;
+  brandV2.light = set.light;
+  brandV2.deep = set.deep;
+  brandV2.tint = set.tint;
 }

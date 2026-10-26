@@ -2,6 +2,7 @@ import { AbilityConstant, Configuration, UIAbility, Want } from '@kit.AbilityKit
 import { window, display } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { isPinSet } from '../common/PrivacyLock';
+import { DeviceSignals } from '../common/V2Signals';
 
 
 export default class EntryAbility extends UIAbility {
@@ -11,6 +12,8 @@ export default class EntryAbility extends UIAbility {
     const widthVp = widthPx / density;
     const isWide = widthVp >= 840;
     AppStorage.setOrCreate('isWideScreen', isWide);
+    // V2 双写（AppStorageV2 桥接层，供已迁移 @ComponentV2 组件订阅）
+    DeviceSignals.connect().isWideScreen = isWide;
     console.info('📐 宽屏断点检测: widthPx=' + widthPx + ', density=' + density
       + ', widthVp=' + widthVp.toFixed(0) + ', isWideScreen=' + isWide);
   }
@@ -54,6 +57,10 @@ export default class EntryAbility extends UIAbility {
       const navBarVp = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR).bottomRect.height / density;
       AppStorage.setOrCreate('statusBarVp', statusBarVp);
       AppStorage.setOrCreate('navBarVp', navBarVp);
+      // V2 双写（AppStorageV2 桥接层，供已迁移 @ComponentV2 组件订阅）
+      const deviceV2 = DeviceSignals.connect();
+      deviceV2.statusBarVp = statusBarVp;
+      deviceV2.navBarVp = navBarVp;
       console.info('✅ 安全区高度发布: statusBar=' + statusBarVp.toFixed(1)
         + 'vp, navBar=' + navBarVp.toFixed(1) + 'vp');
     } catch (e) {

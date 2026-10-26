@@ -17,7 +17,7 @@ import notificationManager from '@ohos.notificationManager';
 import { reminderAgentManager } from '@kit.BackgroundTasksKit';
 import { CalendarTab } from './CalendarTab';
 import { WealthTab } from './WealthTab';
-import { WealthSignals } from '../common/V2Signals';
+import { WealthSignals, BrandSignals, ColorModeSignals } from '../common/V2Signals';
 import { CategoryManageParams } from './CategoryManagePage';
 import { ASSET_PALETTE, getChartPalette, applyBrandTheme, BRAND_THEMES, BRAND_THEME_INDEX_KEY, BrandThemePreset } from '../common/AppTheme';
 import {
@@ -153,32 +153,35 @@ export function getCategoryColor(category: string): string {
 }
 
 // ========== 添加账单弹层（原生半模态 bindSheet，构建器见 Index.AddSheetBuilder） ==========
-@Component
+// V2 状态管理：@Local 内部输入状态 + @Param 父组件数据/回调 + @Computed 全局信号
+@ComponentV2
 struct AddBillSheetContent {
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  onClose: () => void = () => {};
-  @StorageLink('currentColorMode') currentColorMode: ConfigurationConstant.ColorMode = ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT;
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Param onClose: () => void = () => {};
+  @Local colorModeSignals: ColorModeSignals = ColorModeSignals.connect();
+  @Computed get currentColorMode(): ConfigurationConstant.ColorMode { return this.colorModeSignals.mode; }
   // 当前账本的分类列表（由父组件传入）
-  categories: string[] = ['其他'];
-  @State inputName: string = '';
-  @State inputAmount: string = '';
-  @State selectedType: '收入' | '支出' = '支出';
-  @State selectedDate: Date = new Date();
-  @State selectedCategory: string = '其他';
-  @State selectedSource: string = '现金';
-  @State sourceList: string[] = ['现金', '微信', '支付宝', '银行卡'];
-  @State inputTags: string = '';  // 标签输入框内容
-  @State selectedTags: string[] = [];  // 已选择的标签列表
-  @State availableTags: string[] = [];  // 已有的标签列表
-  @State selectedPhotos: string[] = [];  // 已选小票图片
-  @State pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
-  @State cancelBtnScale: number = 1;  // 取消按钮按压缩放
-  @State confirmBtnScale: number = 1;  // 添加按钮按压缩放
+  @Param categories: string[] = ['其他'];
+  @Local inputName: string = '';
+  @Local inputAmount: string = '';
+  @Local selectedType: '收入' | '支出' = '支出';
+  @Local selectedDate: Date = new Date();
+  @Local selectedCategory: string = '其他';
+  @Local selectedSource: string = '现金';
+  @Local sourceList: string[] = ['现金', '微信', '支付宝', '银行卡'];
+  @Local inputTags: string = '';  // 标签输入框内容
+  @Local selectedTags: string[] = [];  // 已选择的标签列表
+  @Local availableTags: string[] = [];  // 已有的标签列表
+  @Local selectedPhotos: string[] = [];  // 已选小票图片
+  @Local pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
+  @Local cancelBtnScale: number = 1;  // 取消按钮按压缩放
+  @Local confirmBtnScale: number = 1;  // 添加按钮按压缩放
   submitted: boolean = false;  // 是否已提交（取消时清理未使用的图片文件）
 
 
   // 第 42 行附近
-  onAddBill: (name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[], photos: string[]) => void = () => {};
+  @Param onAddBill: (name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[], photos: string[]) => void = () => {};
 
   // 从相册选择小票图片（拷贝到应用沙箱）
   async choosePhotos() {
@@ -688,38 +691,40 @@ struct AddBillSheetContent {
 }
 
 // ========== 编辑账单弹层（原生半模态 bindSheet，构建器见 Index.EditSheetBuilder） ==========
-@Component
+// V2 状态管理：@Local 内部编辑状态 + @Param 父组件数据/回调 + @Computed 全局信号
+@ComponentV2
 struct EditBillSheetContent {
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  onClose: () => void = () => {};
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Param onClose: () => void = () => {};
 
-  billId: number = 0;
-  paramName: string = '';
-  paramAmount: string = '';
-  paramType: '收入' | '支出' = '支出';
-  paramDate: Date = new Date();
-  paramCategory: string = '其他';
-  paramSource: string = '现金';
-  onUpdateBill: (id: number, name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[], photos: string[]) => void = () => {};
-  paramTags: string[] = [];
-  paramPhotoUris: string[] = [];
+  @Param billId: number = 0;
+  @Param paramName: string = '';
+  @Param paramAmount: string = '';
+  @Param paramType: '收入' | '支出' = '支出';
+  @Param paramDate: Date = new Date();
+  @Param paramCategory: string = '其他';
+  @Param paramSource: string = '现金';
+  @Param onUpdateBill: (id: number, name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[], photos: string[]) => void = () => {};
+  @Param paramTags: string[] = [];
+  @Param paramPhotoUris: string[] = [];
   // 当前账本的分类列表（由父组件传入）
-  categories: string[] = ['其他'];
+  @Param categories: string[] = ['其他'];
 
-  @State internalName: string = '';
-  @State internalAmount: string = '';
-  @State internalType: '收入' | '支出' = '支出';
-  @State internalDate: Date = new Date();
-  @State internalCategory: string = '其他';
-  @State internalSource: string = '现金';
-  @State sourceList: string[] = ['现金', '微信', '支付宝', '银行卡'];
-  @State inputTags: string = '';
-  @State selectedTags: string[] = [];
-  @State availableTags: string[] = [];
-  @State internalPhotos: string[] = [];
-  @State pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
-  @State cancelBtnScale: number = 1;  // 取消按钮按压缩放
-  @State confirmBtnScale: number = 1;  // 保存按钮按压缩放
+  @Local internalName: string = '';
+  @Local internalAmount: string = '';
+  @Local internalType: '收入' | '支出' = '支出';
+  @Local internalDate: Date = new Date();
+  @Local internalCategory: string = '其他';
+  @Local internalSource: string = '现金';
+  @Local sourceList: string[] = ['现金', '微信', '支付宝', '银行卡'];
+  @Local inputTags: string = '';
+  @Local selectedTags: string[] = [];
+  @Local availableTags: string[] = [];
+  @Local internalPhotos: string[] = [];
+  @Local pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
+  @Local cancelBtnScale: number = 1;  // 取消按钮按压缩放
+  @Local confirmBtnScale: number = 1;  // 保存按钮按压缩放
   submitted: boolean = false;
 
   aboutToAppear() {
@@ -6464,7 +6469,9 @@ struct Index {
   // 切换深色模式
   async toggleDarkMode(isDark: boolean) {
     const colorMode = isDark ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK : ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT;
+    // V1/V2 双写（V2 侧供已迁移 @ComponentV2 弹层组件订阅）
     AppStorage.setOrCreate('currentColorMode', colorMode);
+    ColorModeSignals.connect().mode = colorMode;
     // 更新系统栏颜色
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;

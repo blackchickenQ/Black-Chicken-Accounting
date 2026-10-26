@@ -4,6 +4,7 @@
 // 迁移期与 V1 AppStorage 双写：V1 侧供未迁移 @Component（@StorageProp）使用，
 // V2 侧供已迁移 @ComponentV2（@Local + connect）使用；Index 主 struct（批次E）迁移完成后可移除 V1 侧。
 import { AppStorageV2 } from '@kit.ArkUI';
+import { ConfigurationConstant } from '@kit.AbilityKit';
 
 // 设备/布局信号：宽屏断点 + 沉浸式安全区高度（EntryAbility 写入，各页面读取避让）
 @ObservedV2
@@ -39,5 +40,15 @@ export class WealthSignals {
 
   static connect(): WealthSignals {
     return AppStorageV2.connect(WealthSignals, 'wealthSignals', () => new WealthSignals())!;
+  }
+}
+
+// 深浅色模式信号（currentColorMode）：AbilityStage/onConfigurationUpdate 与 Index 写入，弹层组件读取
+@ObservedV2
+export class ColorModeSignals {
+  @Trace mode: ConfigurationConstant.ColorMode = ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT;
+
+  static connect(): ColorModeSignals {
+    return AppStorageV2.connect(ColorModeSignals, 'colorModeSignals', () => new ColorModeSignals())!;
   }
 }

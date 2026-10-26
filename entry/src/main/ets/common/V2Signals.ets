@@ -29,3 +29,15 @@ export class BrandSignals {
     return AppStorageV2.connect(BrandSignals, 'brandSignals', () => new BrandSignals())!;
   }
 }
+
+// 财富页信号：资产/存钱子模式（wealth_mode）+ 目标详情改动刷新标记（shouldRefreshWealth）
+// 写方：Index/AssetDetailPage（mode）、SavingGoalDetailPage（refreshFlag）；读方：WealthTab
+@ObservedV2
+export class WealthSignals {
+  @Trace mode: string = 'asset';
+  @Trace refreshFlag: number = 0;
+
+  static connect(): WealthSignals {
+    return AppStorageV2.connect(WealthSignals, 'wealthSignals', () => new WealthSignals())!;
+  }
+}

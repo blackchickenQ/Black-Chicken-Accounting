@@ -3,7 +3,7 @@ import { common } from '@kit.AbilityKit';
 import { AnimationConfig } from './Index';
 import { ASSET_PALETTE } from '../common/AppTheme';
 import { MotionCurves } from '../common/Motion';
-import { BrandSignals, DeviceSignals } from '../common/V2Signals';
+import { BrandSignals, DeviceSignals, WealthSignals } from '../common/V2Signals';
 
 interface AssetCategory {
   name: string;
@@ -310,8 +310,9 @@ struct AssetDetailPage {
           }
         })
         .onClick(() => {
-          // 返回主页并切换到财富页资产界面
+          // 返回主页并切换到财富页资产界面（wealth_mode V1/V2 双写：WealthTab 经 WealthSignals 订阅）
           AppStorage.setOrCreate('wealth_mode', 'asset');
+          WealthSignals.connect().mode = 'asset';
           AppStorage.setOrCreate('jump_to_wealth_asset', true);
           this.pathStack.pop();
         })

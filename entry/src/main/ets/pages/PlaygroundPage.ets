@@ -4,6 +4,7 @@ import { loadEggCoins } from '../common/Gameplay';
 import { LedgerItem, DEFAULT_LEDGER_ID, AnimationConfig } from './Index';
 import { HandIcon } from '../common/HandIcon';
 import { MotionCurves } from '../common/Motion';
+import { DeviceSignals, BrandSignals } from '../common/V2Signals';
 import {
   CheckInData,
   loadCheckIn,
@@ -38,33 +39,36 @@ import {
 } from '../common/GameplayPlus';
 
 // ========== 玩法乐园：签到日历 / 摇钱树 / 记账盲盒机 / 预算守护战 / 无消费日挑战 ==========
-@Component
+@ComponentV2
 struct PlaygroundPage {
   // 所在导航栈：由 NavDestination.onReady 注入
   pathStack: NavPathStack = new NavPathStack();
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @StorageProp('brand_tint') brandTint: string = '#EEF1FE';
-  @StorageProp('isWideScreen') isWideScreen: boolean = false;
-  @State @Watch('onEggCoinsChanged') eggCoins: number = 0;
-  @State checkIn: CheckInData | null = null;
-  @State tree: MoneyTreeData | null = null;
-  @State boxState: BlindBoxStateData | null = null;
-  @State boxCosts: number[] = [];
-  @State guardian: GuardianData | null = null;
-  @State noSpend: NoSpendData | null = null;
-  @State limitInput: string = '';
-  @State ledgers: LedgerItem[] = [];
-  @State selectedLedgerId: number = DEFAULT_LEDGER_ID;
-  @State ledgerChosen: boolean = false;
-  @State headerIn: boolean = false;
-  @State contentReady: boolean = false;
-  @State eggBadgeScale: number = 1;
-  @State treeSway: number = -4;
-  @State guardianBob: number = 0;
-  @State boxBob: number = 0;
-  @State betaPulse: number = 1;
-  @State pressedTag: string = '';
-  @State pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Computed get brandTint(): string { return this.brandSignals.tint; }
+  @Local deviceSignals: DeviceSignals = DeviceSignals.connect();
+  @Computed get isWideScreen(): boolean { return this.deviceSignals.isWideScreen; }
+  @Local eggCoins: number = 0;
+  @Local checkIn: CheckInData | null = null;
+  @Local tree: MoneyTreeData | null = null;
+  @Local boxState: BlindBoxStateData | null = null;
+  @Local boxCosts: number[] = [];
+  @Local guardian: GuardianData | null = null;
+  @Local noSpend: NoSpendData | null = null;
+  @Local limitInput: string = '';
+  @Local ledgers: LedgerItem[] = [];
+  @Local selectedLedgerId: number = DEFAULT_LEDGER_ID;
+  @Local ledgerChosen: boolean = false;
+  @Local headerIn: boolean = false;
+  @Local contentReady: boolean = false;
+  @Local eggBadgeScale: number = 1;
+  @Local treeSway: number = -4;
+  @Local guardianBob: number = 0;
+  @Local boxBob: number = 0;
+  @Local betaPulse: number = 1;
+  @Local pressedTag: string = '';
+  @Local pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
   private context = this.getUIContext().getHostContext() as common.UIAbilityContext;
 
   async aboutToAppear(): Promise<void> {
@@ -192,7 +196,8 @@ struct PlaygroundPage {
   }
 
   // 鸡蛋币数量变化：徽章 Q 弹放大再回弹
-  onEggCoinsChanged(): void {
+  @Monitor('eggCoins')
+  onEggCoinsChanged(monitor: IMonitor): void {
     animateTo({ duration: 150, curve: AnimationConfig.SPRING }, () => {
       this.eggBadgeScale = 1.28;
     });
@@ -351,8 +356,8 @@ struct PlaygroundPage {
 
   // 全屏沉浸式布局：避让高度由 EntryAbility 发布到 AppStorage，头部内容与滚动内容在内部消化，
   // 页面背景/渐变延伸至状态栏与底部手势条下方，根节点不再整体留白
-  @StorageProp('statusBarVp') statusBarVp: number = 46;
-  @StorageProp('navBarVp') navBarVp: number = 28;
+  @Computed get statusBarVp(): number { return this.deviceSignals.statusBarVp; }
+  @Computed get navBarVp(): number { return this.deviceSignals.navBarVp; }
 
   build() {
     NavDestination() {

@@ -17,6 +17,7 @@ import {
   getChallengePeriodAmount,
   getChallengePlannedTotal
 } from '../common/Gameplay';
+import { BrandSignals, DeviceSignals, WealthSignals } from '../common/V2Signals';
 
 interface FundAccount {
   name: string;
@@ -795,12 +796,13 @@ struct WishAddDialog {
 }
 // 选项 chip 必须是独立组件：@Prop 选中态才能随父组件 @State 变化实时刷新
 // （@Builder 按值传参不会引起内部 UI 刷新，导致点击无高亮）
-@Component
+@ComponentV2
 struct ProfileOptionChip {
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @Prop selected: boolean = false;
-  label: string = '';
-  onTap: () => void = () => {};
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Param selected: boolean = false;
+  @Param label: string = '';
+  @Param onTap: () => void = () => {};
 
   build() {
     Text(this.label)
@@ -1027,49 +1029,53 @@ struct FinanceProfileDialog {
 }
 
 // ========== 财富页 ==========
-@Component
+@ComponentV2
 export struct WealthTab {
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Local deviceSignals: DeviceSignals = DeviceSignals.connect();
   // 沉浸式布局：状态栏避让高度（顶部占位条内部消化，背景延伸到状态栏下）
-  @StorageProp('statusBarVp') statusBarVp: number = 46;
+  @Computed get statusBarVp(): number { return this.deviceSignals.statusBarVp; }
   // 底部手势条避让高度：滚动内容尾部留白据此避开悬浮页签栏
-  @StorageProp('navBarVp') navBarVp: number = 28;
+  @Computed get navBarVp(): number { return this.deviceSignals.navBarVp; }
   // 总资产变化（记账/资产明细页改动）时触发资金账户刷新
-  @Prop @Watch('onExternalRefresh') totalAsset: number = 0;
+  @Param totalAsset: number = 0;
   // 资金账户在财富页被增删改后，通知首页刷新总资产
-  onAssetsChanged: () => void = () => {};
+  @Param onAssetsChanged: () => void = () => {};
   // 信用账户/存钱目标变更时通知首页（刷新提醒中心角标，不必等打开弹窗）
-  onWealthDataChanged: () => void = () => {};
+  @Param onWealthDataChanged: () => void = () => {};
   // 'asset' 资产 | 'saving' 存钱；StorageLink 便于资产明细页跳转时切回资产界面
-  @StorageLink('wealth_mode') wealthMode: string = 'asset';
+  @Local wealthSignals: WealthSignals = WealthSignals.connect();
+  @Computed get wealthMode(): string { return this.wealthSignals.mode; }
   // 主导航栈（Index 传入）：存钱目标详情经系统路由表压入
-  navPathStack: NavPathStack = new NavPathStack();
+  @Param navPathStack: NavPathStack = new NavPathStack();
   // 目标详情页改动存钱数据后置位，回到财富页时自动刷新目标列表
-  @StorageLink('shouldRefreshWealth') @Watch('onGoalDetailChanged') wealthRefreshFlag: number = 0;
-  @State fundAccounts: FundAccount[] = [];
-  @State creditAccounts: CreditAccount[] = [];
-  @State savingGoals: SavingGoal[] = [];
+  @Computed get wealthRefreshFlag(): number { return this.wealthSignals.refreshFlag; }
+  @Local fundAccounts: FundAccount[] = [];
+  @Local creditAccounts: CreditAccount[] = [];
+  @Local savingGoals: SavingGoal[] = [];
   // 按压中的胶囊/按钮 key（Q弹缩放反馈）
-  @State pressedChipKey: string = '';
-  @State wishes: WishItem[] = [];
+  @Local pressedChipKey: string = '';
+  @Local wishes: WishItem[] = [];
   // 小眼睛：一键隐藏/显示资产金额（与资产明细页风格一致）
-  @State amountVisible: boolean = true;
+  @Local amountVisible: boolean = true;
   // 资产规划数据
-  @State bills: BillItem[] = [];
-  @State monthBudget: number = 0;
-  @State healthResult: HealthResult = { score: 0, grade: '—', items: [], suggestions: [] };
+  @Local bills: BillItem[] = [];
+  @Local monthBudget: number = 0;
+  @Local healthResult: HealthResult = { score: 0, grade: '—', items: [], suggestions: [] };
   // 健康度动画：环形进度插值值 / 分数滚动显示值 / 评级徽章缩放
-  @State healthRingValue: number = 0;
-  @State healthScoreDisplay: number = 0;
-  @State healthGradeScale: number = 1;
+  @Local healthRingValue: number = 0;
+  @Local healthScoreDisplay: number = 0;
+  @Local healthGradeScale: number = 1;
   private healthCountTimer: number = -1;
-  @State trendPoints: NetAssetPoint[] = [];
-  @State pieEntries: FundAccount[] = [];
+  @Local trendPoints: NetAssetPoint[] = [];
+  @Local pieEntries: FundAccount[] = [];
   // 账本分类分析：0 = 全部账本
-  @State ledgers: LedgerItem[] = [];
-  @State selectedLedgerId: number = 0;
+  @Local ledgers: LedgerItem[] = [];
+  @Local selectedLedgerId: number = 0;
   // 用户财务画像（问卷）
-  @State profile: FinanceProfile = {
+  @Local profile: FinanceProfile = {
     incomeStable: '',
     fixedExpense: '',
     emergency: '',
@@ -1085,7 +1091,8 @@ export struct WealthTab {
     this.loadAllData();
   }
 
-  onExternalRefresh(): void {
+  @Monitor('totalAsset')
+  onExternalRefresh(monitor: IMonitor): void {
     this.loadFundAccounts();
     this.loadBills().then((): void => {
       this.computePlannerData();
@@ -1093,7 +1100,8 @@ export struct WealthTab {
   }
 
   // 目标详情页（存入/日记/编辑）返回后刷新存钱目标列表
-  onGoalDetailChanged(): void {
+  @Monitor('wealthRefreshFlag')
+  onGoalDetailChanged(monitor: IMonitor): void {
     this.loadSavingGoals();
     this.onWealthDataChanged();
   }
@@ -2007,7 +2015,7 @@ export struct WealthTab {
     if (mode === this.wealthMode) return;
     // 滑块用 Q 弹弹簧曲线；内容横滑过渡在各自 transition 上用柔和弹簧
     animateTo({ curve: AnimationConfig.SPRING }, () => {
-      this.wealthMode = mode;
+      this.wealthSignals.mode = mode;
     });
   }
 

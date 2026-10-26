@@ -13,14 +13,16 @@ import {
   getChallengePlannedTotal,
   ChallengeTemplate
 } from '../common/Gameplay';
+import { BrandSignals, DeviceSignals, WealthSignals } from '../common/V2Signals';
 
 // ========== 快捷金额 chip（独立组件：@Prop 选中态才随父组件刷新） ==========
-@Component
+@ComponentV2
 struct AmountChip {
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @Prop selected: boolean = false;
-  label: string = '';
-  onTap: () => void = () => {};
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Param selected: boolean = false;
+  @Param label: string = '';
+  @Param onTap: () => void = () => {};
 
   build() {
     Text(this.label)
@@ -227,31 +229,34 @@ struct GoalDiaryDialog {
 }
 
 // ========== 存钱目标详情页：进度总览 + 一键存入 + 日记心得 + 攒钱旅程 ==========
-@Component
+@ComponentV2
 struct SavingGoalDetailPage {
   // 所在导航栈：由 NavDestination.onReady 注入
   pathStack: NavPathStack = new NavPathStack();
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @StorageProp('brand_tint') brandTint: string = '#EEF1FE';
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Computed get brandTint(): string { return this.brandSignals.tint; }
+  @Local deviceSignals: DeviceSignals = DeviceSignals.connect();
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
-  @StorageProp('isWideScreen') isWideScreen: boolean = false;
-  @State goalId: number = 0;
-  @State goalName: string = '';
-  @State goalTarget: number = 0;
-  @State goalSaved: number = 0;
-  @State goalDeadline: number = 0;
-  @State goalChallengeType: string = '';
-  @State goalChallengeStart: number = 0;
-  @State goalBillOnDeposit: boolean = false;  // 每笔存入同步记一笔支出账单
-  @State goalRemindChallenge: boolean = false; // 每期（每天/每周）在提醒中心提醒应存金额
-  @State records: GoalRecord[] = [];
+  @Computed get isWideScreen(): boolean { return this.deviceSignals.isWideScreen; }
+  @Param @Once goalId: number = 0;
+  @Local goalName: string = '';
+  @Local goalTarget: number = 0;
+  @Local goalSaved: number = 0;
+  @Local goalDeadline: number = 0;
+  @Local goalChallengeType: string = '';
+  @Local goalChallengeStart: number = 0;
+  @Local goalBillOnDeposit: boolean = false;  // 每笔存入同步记一笔支出账单
+  @Local goalRemindChallenge: boolean = false; // 每期（每天/每周）在提醒中心提醒应存金额
+  @Local records: GoalRecord[] = [];
   // 动画状态：环形进度插值 / 金额滚动 / 金额弹跳 / 达成庆祝 / 旅程揭示
-  @State ringValue: number = 0;
-  @State savedDisplay: number = 0;
-  @State savedPopScale: number = 1;
-  @State celebrating: boolean = false;
-  @State timelineReady: boolean = false;
-  @State pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
+  @Local ringValue: number = 0;
+  @Local savedDisplay: number = 0;
+  @Local savedPopScale: number = 1;
+  @Local celebrating: boolean = false;
+  @Local timelineReady: boolean = false;
+  @Local pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
   private countTimer: number = -1;
   private context = this.getUIContext().getHostContext() as common.UIAbilityContext;
   private depositDialog: CustomDialogController | null = null;
@@ -337,6 +342,7 @@ struct SavingGoalDetailPage {
     // 置位刷新信号：财富页回到前台时重载目标列表并刷新提醒角标
     const flag = (AppStorage.get<number>('shouldRefreshWealth') || 0) + 1;
     AppStorage.setOrCreate('shouldRefreshWealth', flag);
+    WealthSignals.connect().refreshFlag = flag;
   }
 
   // ---------- 展示辅助 ----------
@@ -601,8 +607,8 @@ struct SavingGoalDetailPage {
   }
 
   // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
-  @StorageProp('statusBarVp') statusBarVp: number = 46;
-  @StorageProp('navBarVp') navBarVp: number = 28;
+  @Computed get statusBarVp(): number { return this.deviceSignals.statusBarVp; }
+  @Computed get navBarVp(): number { return this.deviceSignals.navBarVp; }
 
   build() {
     NavDestination() {

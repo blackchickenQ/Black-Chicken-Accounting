@@ -17,6 +17,7 @@ import notificationManager from '@ohos.notificationManager';
 import { reminderAgentManager } from '@kit.BackgroundTasksKit';
 import { CalendarTab } from './CalendarTab';
 import { WealthTab } from './WealthTab';
+import { WealthSignals } from '../common/V2Signals';
 import { CategoryManageParams } from './CategoryManagePage';
 import { ASSET_PALETTE, getChartPalette, applyBrandTheme, BRAND_THEMES, BRAND_THEME_INDEX_KEY, BrandThemePreset } from '../common/AppTheme';
 import {
@@ -4512,12 +4513,16 @@ struct Index {
     hapticTick();
     setTimeout(() => {
       if (item.kind === 'credit') {
+        // V1/V2 双写（WealthTab 已迁移 @ComponentV2，经 WealthSignals 订阅）
         AppStorage.setOrCreate('wealth_mode', 'asset');
+        WealthSignals.connect().mode = 'asset';
         animateTo({ curve: AnimationConfig.SPRING_SOFT }, () => {
           this.currentTabIndex = 3;
         });
       } else if (item.kind === 'goal') {
+        // V1/V2 双写（WealthTab 已迁移 @ComponentV2，经 WealthSignals 订阅）
         AppStorage.setOrCreate('wealth_mode', 'saving');
+        WealthSignals.connect().mode = 'saving';
         animateTo({ curve: AnimationConfig.SPRING_SOFT }, () => {
           this.currentTabIndex = 3;
         });
@@ -9387,7 +9392,7 @@ struct Index {
             } else {
               // 日历形式
               Column() {
-                CalendarTab({ bills: $ledgerBills, embedded: true })
+                CalendarTab({ bills: this.ledgerBills, embedded: true })
               }
               .width('100%')
               .layoutWeight(1)

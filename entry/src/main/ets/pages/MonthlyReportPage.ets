@@ -3,6 +3,7 @@ import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { getCategoryColor, AnimationConfig } from './Index';
 import { MotionCurves } from '../common/Motion';
+import { BrandSignals, DeviceSignals } from '../common/V2Signals';
 
 interface ReportBill {
   id: number;
@@ -30,34 +31,40 @@ interface CategoryDelta {
 
 const DEFAULT_LEDGER_ID: number = 1;
 
-@Component
+@ComponentV2
 struct MonthlyReportPage {
   // 所在导航栈：由 NavDestination.onReady 注入
   pathStack: NavPathStack = new NavPathStack();
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @StorageProp('brand_light') brandLight: string = '#7B93FF';
-  @StorageProp('brand_deep') brandDeep: string = '#3A55E0';
-  @State year: number = new Date().getFullYear();
-  @State month: number = new Date().getMonth() + 1;
-  @State hasData: boolean = false;
-  @State expenseTotal: number = 0;
-  @State incomeTotal: number = 0;
-  @State prevExpenseTotal: number = 0;
-  @State billCount: number = 0;
-  @State recordDays: number = 0;
-  @State maxExpenseName: string = '';
-  @State maxExpenseAmount: number = 0;
-  @State categoryStats: CategoryStat[] = [];
-  @State topIncreases: CategoryDelta[] = [];
-  @State topDecreases: CategoryDelta[] = [];
-  @State hasBudget: boolean = false;
-  @State budgetAmount: number = 0;
-  @State insights: string[] = [];
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Computed get brandLight(): string { return this.brandSignals.light; }
+  @Computed get brandDeep(): string { return this.brandSignals.deep; }
+  @Local devSignals: DeviceSignals = DeviceSignals.connect();
+  @Computed get isWideScreen(): boolean { return this.devSignals.isWideScreen; }
+  @Computed get statusBarVp(): number { return this.devSignals.statusBarVp; }
+  @Computed get navBarVp(): number { return this.devSignals.navBarVp; }
+  @Local year: number = new Date().getFullYear();
+  @Local month: number = new Date().getMonth() + 1;
+  @Local hasData: boolean = false;
+  @Local expenseTotal: number = 0;
+  @Local incomeTotal: number = 0;
+  @Local prevExpenseTotal: number = 0;
+  @Local billCount: number = 0;
+  @Local recordDays: number = 0;
+  @Local maxExpenseName: string = '';
+  @Local maxExpenseAmount: number = 0;
+  @Local categoryStats: CategoryStat[] = [];
+  @Local topIncreases: CategoryDelta[] = [];
+  @Local topDecreases: CategoryDelta[] = [];
+  @Local hasBudget: boolean = false;
+  @Local budgetAmount: number = 0;
+  @Local insights: string[] = [];
   // 月份切换动画状态：内容横向偏移与透明度（入场从右侧淡入，切月时方向性滑动）
-  @State contentShiftX: number = 40;
-  @State contentAlpha: number = 0;
+  @Local contentShiftX: number = 40;
+  @Local contentAlpha: number = 0;
   // 按压回弹：当前按下目标的 key
-  @State pressedChipKey: string = '';
+  @Local pressedChipKey: string = '';
   private monthSwitching: boolean = false;
 
   aboutToAppear() {
@@ -325,13 +332,6 @@ struct MonthlyReportPage {
     .alignItems(HorizontalAlign.Start)
     .layoutWeight(1)
   }
-
-  // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
-  @StorageProp('isWideScreen') isWideScreen: boolean = false;
-
-  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
-  @StorageProp('statusBarVp') statusBarVp: number = 46;
-  @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
     NavDestination() {

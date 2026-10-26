@@ -8,6 +8,7 @@ import { uniformTypeDescriptor as utd } from '@kit.ArkData';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { getCategoryColor, AnimationConfig } from './Index';
 import { MotionCurves } from '../common/Motion';
+import { BrandSignals, DeviceSignals } from '../common/V2Signals';
 
 interface ReportBill {
   id: number;
@@ -29,32 +30,38 @@ interface CategoryStat {
 const DEFAULT_LEDGER_ID: number = 1;
 const MONTH_LABELS: string[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
 
-@Component
+@ComponentV2
 struct AnnualReportPage {
   // 所在导航栈：由 NavDestination.onReady 注入
   pathStack: NavPathStack = new NavPathStack();
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @StorageProp('brand_light') brandLight: string = '#7B93FF';
-  @StorageProp('brand_deep') brandDeep: string = '#3A55E0';
-  @State year: number = new Date().getFullYear();
-  @State hasData: boolean = false;
-  @State expenseTotal: number = 0;
-  @State incomeTotal: number = 0;
-  @State prevYearExpense: number = 0;
-  @State billCount: number = 0;
-  @State recordDays: number = 0;
-  @State maxExpenseName: string = '';
-  @State maxExpenseAmount: number = 0;
-  @State monthExpenses: number[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-  @State peakMonthIdx: number = -1;
-  @State lowMonthIdx: number = -1;
-  @State categoryStats: CategoryStat[] = [];
-  @State insights: string[] = [];
+  // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Computed get brandLight(): string { return this.brandSignals.light; }
+  @Computed get brandDeep(): string { return this.brandSignals.deep; }
+  @Local devSignals: DeviceSignals = DeviceSignals.connect();
+  @Computed get isWideScreen(): boolean { return this.devSignals.isWideScreen; }
+  @Computed get statusBarVp(): number { return this.devSignals.statusBarVp; }
+  @Computed get navBarVp(): number { return this.devSignals.navBarVp; }
+  @Local year: number = new Date().getFullYear();
+  @Local hasData: boolean = false;
+  @Local expenseTotal: number = 0;
+  @Local incomeTotal: number = 0;
+  @Local prevYearExpense: number = 0;
+  @Local billCount: number = 0;
+  @Local recordDays: number = 0;
+  @Local maxExpenseName: string = '';
+  @Local maxExpenseAmount: number = 0;
+  @Local monthExpenses: number[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  @Local peakMonthIdx: number = -1;
+  @Local lowMonthIdx: number = -1;
+  @Local categoryStats: CategoryStat[] = [];
+  @Local insights: string[] = [];
   // 年份切换动画状态：内容横向偏移与透明度
-  @State contentShiftX: number = 40;
-  @State contentAlpha: number = 0;
+  @Local contentShiftX: number = 40;
+  @Local contentAlpha: number = 0;
   // 按压回弹：当前按下目标的 key
-  @State pressedChipKey: string = '';
+  @Local pressedChipKey: string = '';
   private yearSwitching: boolean = false;
 
   aboutToAppear() {
@@ -342,13 +349,6 @@ struct AnnualReportPage {
     .layoutWeight(1)
     .alignItems(HorizontalAlign.Center)
   }
-
-  // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
-  @StorageProp('isWideScreen') isWideScreen: boolean = false;
-
-  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
-  @StorageProp('statusBarVp') statusBarVp: number = 46;
-  @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
     NavDestination() {

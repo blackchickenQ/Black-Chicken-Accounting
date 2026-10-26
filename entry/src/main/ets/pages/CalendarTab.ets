@@ -1,5 +1,6 @@
 import { BillItem, AnimationConfig, Padding } from './Index';
 import { MotionCurves } from '../common/Motion';
+import { BrandSignals } from '../common/V2Signals';
 
 
 interface CalendarDay {
@@ -9,36 +10,37 @@ interface CalendarDay {
   hasBill: boolean;
 }
 
-@Component
+@ComponentV2
 export struct CalendarTab {
-  @StorageProp('brand_main') brandMain: string = '#4E6EF2';
-  @Link bills: BillItem[];
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Param bills: BillItem[] = [];
   // 嵌入账单页模式：去掉自身左右边距与背景（由外层容器提供）
-  @Prop embedded: boolean = false;
+  @Param embedded: boolean = false;
 
-  @State currentYear: number = 0;
-  @State currentMonth: number = 0;
-  @State selectedDay: number = 0;
-  @State selectedDateStr: string = '';
-  @State dayBills: BillItem[] = [];
-  @State calendarDays: CalendarDay[] = [];
-  @State refreshKey: number = 0;
+  @Local currentYear: number = 0;
+  @Local currentMonth: number = 0;
+  @Local selectedDay: number = 0;
+  @Local selectedDateStr: string = '';
+  @Local dayBills: BillItem[] = [];
+  @Local calendarDays: CalendarDay[] = [];
+  @Local refreshKey: number = 0;
 
   // 日历网格动画状态
-  @State gridOpacity: number = 0;
-  @State gridScale: number = 0.85;
+  @Local gridOpacity: number = 0;
+  @Local gridScale: number = 0.85;
 
   // ✅ 新增：账单列表动画状态
-  @State listOpacity: number = 0;
-  @State listScale: number = 0.9;
+  @Local listOpacity: number = 0;
+  @Local listScale: number = 0.9;
 
   // 按压的日期格索引
-  @State pressedDayIdx: number = -1;
+  @Local pressedDayIdx: number = -1;
 
   // 按压中的导航/药丸 key（Q弹缩放反馈）
-  @State pressedPillKey: string = '';
+  @Local pressedPillKey: string = '';
 
-  @State touchStartY: number = 0;
+  @Local touchStartY: number = 0;
 
   private weekDays: string[] = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -241,13 +243,13 @@ export struct CalendarTab {
   }
 
   // ---------- 账单面板放大弹层 ----------
-  @State billPanelExpanded: boolean = false;
+  @Local billPanelExpanded: boolean = false;
   // 弹层转场起始偏移（原位置 → 视野中央）
-  @State panelFlyX: number = 0;
-  @State panelFlyY: number = 0;
+  @Local panelFlyX: number = 0;
+  @Local panelFlyY: number = 0;
   // 弹层转场起始缩放（起始尺寸 = 原账单区域尺寸）
-  @State panelScaleX: number = 1;
-  @State panelScaleY: number = 1;
+  @Local panelScaleX: number = 1;
+  @Local panelScaleY: number = 1;
   private billAreaX: number = 0;
   private billAreaY: number = 0;
   private billAreaW: number = 0;
@@ -258,8 +260,8 @@ export struct CalendarTab {
   private rootH: number = 0;
 
   // ---------- 卡片弹性间距（内嵌列表 / 放大面板各自独立） ----------
-  @State inlineGapStretch: number = 0;
-  @State panelGapStretch: number = 0;
+  @Local inlineGapStretch: number = 0;
+  @Local panelGapStretch: number = 0;
   private inlineCenterIdx: number = 0;
   private panelCenterIdx: number = 0;
 

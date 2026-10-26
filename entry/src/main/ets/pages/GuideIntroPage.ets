@@ -1,10 +1,8 @@
-import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { hapticTick } from '../common/Haptics';
 import { AnimationConfig } from './Index';
 import { MotionCurves } from '../common/Motion';
 import {
-  isGuideIntroDone,
   setGuideIntroDone,
   isGuideDone,
   finishGuide
@@ -72,9 +70,9 @@ const INTRO_PAGES: IntroPageDef[] = [
   }
 ];
 
-// 引导介绍页：首启展示，也可从「设置 → 新手引导」重新体验
+// 引导介绍页：首启展示（Index.aboutToAppear 检测 guide_intro_done 后压入），
+// 也可从「设置 → 新手引导」重新体验；完成后 pop 回上级（首页或设置页）
 // 页面切换不用 Swiper，改用键控内容 + 过渡动画：点击/滑动均可靠，动画更 Q 弹
-@Entry
 @Component
 struct GuideIntroPage {
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
@@ -83,6 +81,8 @@ struct GuideIntroPage {
   @State nextBtnScale: number = 1;
   @State skipBtnScale: number = 1;
   @State pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
+  // 所在导航栈：由 NavDestination.onReady 注入
+  pathStack: NavPathStack = new NavPathStack();
 
   aboutToAppear(): void {
     // 插图呼吸：轻微缩放往复，让页面有生命感
@@ -107,16 +107,15 @@ struct GuideIntroPage {
     });
   }
 
-  // 结束引导：标记已看过；首次结束发放新手礼包（幂等）
-  // 首次启动 → 进入主页；从设置页重新体验 → 返回设置页
+  // 结束引导：标记已看过；首次结束发放新手礼包（幂等）；
+  // 首启场景 pop 回主页（Index 已在栈底），重看场景 pop 回设置页
   async finishIntro(): Promise<void> {
     hapticTick();
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     if (!context) {
-      router.replaceUrl({ url: 'pages/Index' });
+      this.pathStack.pop();
       return;
     }
-    const alreadyDone = await isGuideIntroDone(context);
     await setGuideIntroDone(context);
     if (!await isGuideDone(context)) {
       await finishGuide(context);
@@ -125,11 +124,7 @@ struct GuideIntroPage {
         duration: 3000
       });
     }
-    if (alreadyDone) {
-      router.back();
-    } else {
-      router.replaceUrl({ url: 'pages/Index' });
-    }
+    this.pathStack.pop();
   }
 
   // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
@@ -137,6 +132,7 @@ struct GuideIntroPage {
   @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
+    NavDestination() {
     Column() {
       // 顶部品牌行：应用图标 + 名称
       Row() {
@@ -308,6 +304,20 @@ struct GuideIntroPage {
     .padding({ left: 28, right: 28 })
     .backgroundColor($r('app.color.bg_main'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+    }
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.bg_main'))
+    .onReady((ctx: NavDestinationContext) => {
+      this.pathStack = ctx.pathStack;
+    })
   }
 
+}
+
+// 系统路由表（router_map.json）构建入口：导航栈按 name 路由到此页
+@Builder
+export function GuideIntroPageBuilder(name: string, param: object) {
+  if (name === 'GuideIntroPage') {
+    GuideIntroPage()
+  }
 }

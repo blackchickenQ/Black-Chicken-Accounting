@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import dataPreferences from '@ohos.data.preferences';
 import { hapticTick } from '../common/Haptics';
@@ -228,9 +227,10 @@ struct GoalDiaryDialog {
 }
 
 // ========== 存钱目标详情页：进度总览 + 一键存入 + 日记心得 + 攒钱旅程 ==========
-@Entry
 @Component
 struct SavingGoalDetailPage {
+  // 所在导航栈：由 NavDestination.onReady 注入
+  pathStack: NavPathStack = new NavPathStack();
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @StorageProp('brand_tint') brandTint: string = '#EEF1FE';
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
@@ -258,10 +258,6 @@ struct SavingGoalDetailPage {
   private diaryDialog: CustomDialogController | null = null;
 
   async aboutToAppear(): Promise<void> {
-    const params = router.getParams() as GoalDetailParams;
-    if (params && params.id) {
-      this.goalId = params.id;
-    }
     await this.loadGoal();
   }
 
@@ -281,7 +277,11 @@ struct SavingGoalDetailPage {
       const found = parsed.find((g: SavingGoal): boolean => g.id === this.goalId);
       if (found === undefined) {
         this.getUIContext().getPromptAction().showToast({ message: '目标不存在或已删除', duration: 1500 });
-        router.back();
+        // aboutToAppear 阶段 NavDestination 尚未 onReady 注入真实导航栈，
+        // 延迟执行 pop，确保作用于真实栈（本地占位空栈 pop 为 no-op）
+        setTimeout(() => {
+          this.pathStack.pop();
+        }, 400);
         return;
       }
       this.goalName = found.name;
@@ -605,6 +605,7 @@ struct SavingGoalDetailPage {
   @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
+    NavDestination() {
     Row() {
     Column() {
       // 标题栏
@@ -623,7 +624,7 @@ struct SavingGoalDetailPage {
             }
           })
           .onClick(() => {
-            router.back();
+            this.pathStack.pop();
           })
           .margin({ right: 8 })
 
@@ -1051,6 +1052,24 @@ struct SavingGoalDetailPage {
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
+    }
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.bg_main'))
+    .onReady((ctx: NavDestinationContext) => {
+      this.pathStack = ctx.pathStack;
+    })
   }
 
+}
+
+// 系统路由表（router_map.json）构建入口：goalId 经构造参数注入（替代原 router.getParams()）
+@Builder
+export function SavingGoalDetailPageBuilder(name: string, param: object) {
+  if (name === 'SavingGoalDetailPage') {
+    if (param !== undefined) {
+      SavingGoalDetailPage({ goalId: (param as GoalDetailParams).id })
+    } else {
+      SavingGoalDetailPage({ goalId: 0 })
+    }
+  }
 }

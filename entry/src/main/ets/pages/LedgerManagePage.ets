@@ -1,5 +1,4 @@
 // pages/LedgerManagePage.ets
-import { router } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import {
@@ -167,9 +166,10 @@ struct LedgerEditDialog {
   }
 }
 
-@Entry
 @Component
 struct LedgerManagePage {
+  // 所在导航栈：由 NavDestination.onReady 注入
+  pathStack: NavPathStack = new NavPathStack();
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @State ledgers: LedgerItem[] = [];
   @State billList: BillItem[] = [];
@@ -449,10 +449,7 @@ struct LedgerManagePage {
 
   // ---------- 分类管理入口 ----------
   goCategoryManage(ledger: LedgerItem) {
-    router.pushUrl({
-      url: 'pages/CategoryManagePage',
-      params: { ledgerId: ledger.id } as CategoryManageParams
-    });
+    this.pathStack.pushPathByName('CategoryManagePage', { ledgerId: ledger.id } as CategoryManageParams);
   }
 
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
@@ -463,6 +460,7 @@ struct LedgerManagePage {
   @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
+    NavDestination() {
     Row() {
     Column() {
       // 标题栏
@@ -481,7 +479,7 @@ struct LedgerManagePage {
             }
           })
           .onClick(() => {
-            router.back();
+            this.pathStack.pop();
           })
           .margin({ right: 8 })
 
@@ -667,6 +665,20 @@ struct LedgerManagePage {
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
+    }
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.bg_main'))
+    .onReady((ctx: NavDestinationContext) => {
+      this.pathStack = ctx.pathStack;
+    })
   }
 
+}
+
+// 系统路由表（router_map.json）构建入口：导航栈按 name 路由到此页
+@Builder
+export function LedgerManagePageBuilder(name: string, param: object) {
+  if (name === 'LedgerManagePage') {
+    LedgerManagePage()
+  }
 }

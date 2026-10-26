@@ -1,5 +1,4 @@
 // pages/MonthlyReportPage.ets
-import { router } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { getCategoryColor, AnimationConfig } from './Index';
@@ -31,9 +30,10 @@ interface CategoryDelta {
 
 const DEFAULT_LEDGER_ID: number = 1;
 
-@Entry
 @Component
 struct MonthlyReportPage {
+  // 所在导航栈：由 NavDestination.onReady 注入
+  pathStack: NavPathStack = new NavPathStack();
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @StorageProp('brand_light') brandLight: string = '#7B93FF';
   @StorageProp('brand_deep') brandDeep: string = '#3A55E0';
@@ -334,6 +334,7 @@ struct MonthlyReportPage {
   @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
+    NavDestination() {
     Row() {
     Column() {
       Row() {
@@ -351,7 +352,7 @@ struct MonthlyReportPage {
             }
           })
           .onClick(() => {
-            router.back();
+            this.pathStack.pop();
           })
           .margin({ right: 8 })
 
@@ -730,6 +731,20 @@ struct MonthlyReportPage {
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
+    }
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.bg_main'))
+    .onReady((ctx: NavDestinationContext) => {
+      this.pathStack = ctx.pathStack;
+    })
   }
 
+}
+
+// 系统路由表（router_map.json）构建入口：导航栈按 name 路由到此页
+@Builder
+export function MonthlyReportPageBuilder(name: string, param: object) {
+  if (name === 'MonthlyReportPage') {
+    MonthlyReportPage()
+  }
 }

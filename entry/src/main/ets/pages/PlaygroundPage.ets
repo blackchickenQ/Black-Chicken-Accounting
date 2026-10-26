@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import dataPreferences from '@ohos.data.preferences';
 import { loadEggCoins } from '../common/Gameplay';
@@ -39,9 +38,10 @@ import {
 } from '../common/GameplayPlus';
 
 // ========== 玩法乐园：签到日历 / 摇钱树 / 记账盲盒机 / 预算守护战 / 无消费日挑战 ==========
-@Entry
 @Component
 struct PlaygroundPage {
+  // 所在导航栈：由 NavDestination.onReady 注入
+  pathStack: NavPathStack = new NavPathStack();
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @StorageProp('brand_tint') brandTint: string = '#EEF1FE';
   @StorageProp('isWideScreen') isWideScreen: boolean = false;
@@ -355,6 +355,7 @@ struct PlaygroundPage {
   @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
+    NavDestination() {
     Stack() {
       Row() {
       Column() {
@@ -375,7 +376,7 @@ struct PlaygroundPage {
                 }
               })
               .onClick(() => {
-                router.back();
+                this.pathStack.pop();
               })
               .margin({ right: 8 })
 
@@ -1082,6 +1083,20 @@ struct PlaygroundPage {
     .height('100%')
     .backgroundColor($r('app.color.bg_main'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    }
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.bg_main'))
+    .onReady((ctx: NavDestinationContext) => {
+      this.pathStack = ctx.pathStack;
+    })
   }
 
+}
+
+// 系统路由表（router_map.json）构建入口：导航栈按 name 路由到此页
+@Builder
+export function PlaygroundPageBuilder(name: string, param: object) {
+  if (name === 'PlaygroundPage') {
+    PlaygroundPage()
+  }
 }

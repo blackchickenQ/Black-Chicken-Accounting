@@ -1,7 +1,6 @@
 import { AbilityConstant, Configuration, UIAbility, Want } from '@kit.AbilityKit';
 import { window, display } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
-import dataPreferences from '@ohos.data.preferences';
 import { isPinSet } from '../common/PrivacyLock';
 
 
@@ -103,18 +102,9 @@ export default class EntryAbility extends UIAbility {
   }
 
   private async loadEntryPage(windowStage: window.WindowStage): Promise<void> {
-    // 首次启动（未看过引导介绍页）先加载引导页，否则直接进入主页
-    let firstPage: string = 'pages/Index';
-    try {
-      const prefs = await dataPreferences.getPreferences(this.context, 'bill_data');
-      const introDone = await prefs.get('guide_intro_done', false) as boolean;
-      if (!introDone) {
-        firstPage = 'pages/GuideIntroPage';
-      }
-    } catch (e) {
-      console.error('读取引导状态失败，默认进入主页: ' + JSON.stringify(e));
-    }
-    windowStage.loadContent(firstPage, (err) => {
+    // 统一加载主页（router→Navigation 重构后引导页/子页面均为主页导航栈内的 NavDestination，
+    // 首启引导由 Index.aboutToAppear 检测 guide_intro_done 后入栈）
+    windowStage.loadContent('pages/Index', (err) => {
       // 注意：API 26+ 成功回调也携带 err 对象（code 为 0），必须判断 err.code 而非 err 本身
       if (err && err.code) {
         console.error('❌ 加载页面失败: ' + JSON.stringify(err));
@@ -163,8 +153,8 @@ export default class EntryAbility extends UIAbility {
     }).catch(() => {});
   }
   onForeground(): void {
-    // 从后台回前台：已设隐私锁时，无论当前停在哪个子页面，
-    // 都退回主页让锁屏置顶（privacy_should_relock 已在 onBackground 置位）
+    // 从后台回前台：已设隐私锁时，清空主页导航栈回到主页，
+    // 由 Index.onPageShow 消费 privacy_should_relock 信号重新上锁（信号已在 onBackground 置位）
     if (!this.pendingRelock) {
       return;
     }
@@ -173,9 +163,10 @@ export default class EntryAbility extends UIAbility {
       if (!set) {
         return;
       }
-      window.getLastWindow(this.context).then((win: window.Window): void => {
-        win.getUIContext().getRouter().back({ url: 'pages/Index' });
-      }).catch(() => {});
+      const stack = AppStorage.get<NavPathStack>('navPathStack');
+      if (stack !== undefined) {
+        stack.clear();
+      }
     }).catch(() => {});
   }
   onBackground(): void {

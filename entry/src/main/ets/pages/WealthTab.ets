@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { AnimationConfig, BillItem, DEFAULT_LEDGER_ID, LedgerItem } from './Index';
@@ -1043,6 +1042,8 @@ export struct WealthTab {
   onWealthDataChanged: () => void = () => {};
   // 'asset' 资产 | 'saving' 存钱；StorageLink 便于资产明细页跳转时切回资产界面
   @StorageLink('wealth_mode') wealthMode: string = 'asset';
+  // 主导航栈（Index 传入）：存钱目标详情经系统路由表压入
+  navPathStack: NavPathStack = new NavPathStack();
   // 目标详情页改动存钱数据后置位，回到财富页时自动刷新目标列表
   @StorageLink('shouldRefreshWealth') @Watch('onGoalDetailChanged') wealthRefreshFlag: number = 0;
   @State fundAccounts: FundAccount[] = [];
@@ -1099,10 +1100,7 @@ export struct WealthTab {
 
   // 进入存钱目标详情页：旅程/存入/日记都在详情页完成
   openGoalDetail(goal: SavingGoal): void {
-    router.pushUrl({
-      url: 'pages/SavingGoalDetailPage',
-      params: { id: goal.id } as GoalDetailParams
-    });
+    this.navPathStack.pushPathByName('SavingGoalDetailPage', { id: goal.id } as GoalDetailParams);
   }
 
   // 加载全部数据后统一计算规划指标

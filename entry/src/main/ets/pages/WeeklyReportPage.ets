@@ -33,9 +33,10 @@ const DEFAULT_LEDGER_ID: number = 1;
 const DAY_MS: number = 24 * 60 * 60 * 1000;
 const DAY_LABELS: string[] = ['一', '二', '三', '四', '五', '六', '日'];
 
-@Entry
 @Component
 struct WeeklyReportPage {
+  // 所在导航栈：由 NavDestination.onReady 注入
+  pathStack: NavPathStack = new NavPathStack();
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @StorageProp('brand_light') brandLight: string = '#7B93FF';
   @StorageProp('brand_deep') brandDeep: string = '#3A55E0';
@@ -365,6 +366,7 @@ struct WeeklyReportPage {
   @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
+    NavDestination() {
     Row() {
     Column() {
       Row() {
@@ -382,7 +384,7 @@ struct WeeklyReportPage {
             }
           })
           .onClick(() => {
-            this.getUIContext().getRouter().back();
+            this.pathStack.pop();
           })
           .margin({ right: 8 })
 
@@ -755,6 +757,20 @@ struct WeeklyReportPage {
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
+    }
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.bg_main'))
+    .onReady((ctx: NavDestinationContext) => {
+      this.pathStack = ctx.pathStack;
+    })
   }
 
+}
+
+// 系统路由表（router_map.json）构建入口：导航栈按 name 路由到此页
+@Builder
+export function WeeklyReportPageBuilder(name: string, param: object) {
+  if (name === 'WeeklyReportPage') {
+    WeeklyReportPage()
+  }
 }

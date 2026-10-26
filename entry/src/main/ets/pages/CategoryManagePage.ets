@@ -1,5 +1,4 @@
 // pages/CategoryManagePage.ets
-import { router } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { LedgerItem, BillItem, DEFAULT_LEDGER_ID, getCategoryColor, AnimationConfig } from './Index';
@@ -10,9 +9,10 @@ export interface CategoryManageParams {
   ledgerId: number;
 }
 
-@Entry
 @Component
 struct CategoryManagePage {
+  // 所在导航栈：由 NavDestination.onReady 注入
+  pathStack: NavPathStack = new NavPathStack();
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @State ledgerId: number = DEFAULT_LEDGER_ID;
   @State ledgerName: string = '';
@@ -24,10 +24,6 @@ struct CategoryManagePage {
   @State pressedChipKey: string = '';
 
   async aboutToAppear() {
-    const params = router.getParams() as CategoryManageParams;
-    if (params !== undefined && params !== null && params.ledgerId !== undefined) {
-      this.ledgerId = params.ledgerId;
-    }
     await this.loadData();
   }
 
@@ -211,6 +207,7 @@ struct CategoryManagePage {
   @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
+    NavDestination() {
     Row() {
     Column() {
       // 标题栏
@@ -229,7 +226,7 @@ struct CategoryManagePage {
             }
           })
           .onClick(() => {
-            router.back();
+            this.pathStack.pop();
           })
           .margin({ right: 8 })
 
@@ -409,6 +406,24 @@ struct CategoryManagePage {
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
+    }
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.bg_main'))
+    .onReady((ctx: NavDestinationContext) => {
+      this.pathStack = ctx.pathStack;
+    })
   }
 
+}
+
+// 系统路由表（router_map.json）构建入口：ledgerId 经构造参数注入（替代原 router.getParams()）
+@Builder
+export function CategoryManagePageBuilder(name: string, param: object) {
+  if (name === 'CategoryManagePage') {
+    if (param !== undefined) {
+      CategoryManagePage({ ledgerId: (param as CategoryManageParams).ledgerId })
+    } else {
+      CategoryManagePage({ ledgerId: DEFAULT_LEDGER_ID })
+    }
+  }
 }

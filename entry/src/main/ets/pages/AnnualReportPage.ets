@@ -1,5 +1,4 @@
 // pages/AnnualReportPage.ets 年度报告：年度总览 + 月度支出趋势 + 分类排行 + 消费洞察 + 分享
-import { router } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { systemShare } from '@kit.ShareKit';
@@ -30,9 +29,10 @@ interface CategoryStat {
 const DEFAULT_LEDGER_ID: number = 1;
 const MONTH_LABELS: string[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
 
-@Entry
 @Component
 struct AnnualReportPage {
+  // 所在导航栈：由 NavDestination.onReady 注入
+  pathStack: NavPathStack = new NavPathStack();
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @StorageProp('brand_light') brandLight: string = '#7B93FF';
   @StorageProp('brand_deep') brandDeep: string = '#3A55E0';
@@ -351,6 +351,7 @@ struct AnnualReportPage {
   @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
+    NavDestination() {
     Row() {
     Column() {
       Row() {
@@ -368,7 +369,7 @@ struct AnnualReportPage {
             }
           })
           .onClick(() => {
-            router.back();
+            this.pathStack.pop();
           })
           .margin({ right: 8 })
 
@@ -700,6 +701,20 @@ struct AnnualReportPage {
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
+    }
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.bg_main'))
+    .onReady((ctx: NavDestinationContext) => {
+      this.pathStack = ctx.pathStack;
+    })
   }
 
+}
+
+// 系统路由表（router_map.json）构建入口：导航栈按 name 路由到此页
+@Builder
+export function AnnualReportPageBuilder(name: string, param: object) {
+  if (name === 'AnnualReportPage') {
+    AnnualReportPage()
+  }
 }

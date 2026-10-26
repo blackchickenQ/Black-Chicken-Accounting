@@ -11,7 +11,6 @@ import { uniformTypeDescriptor as utd } from '@kit.ArkData';
 import { HdsTabs, hdsMaterial, HdsTabsFloatingStyle } from '@kit.UIDesignKit';
 import ExcelJS from '@archermind/exceljs';
 import { taskpool } from '@kit.ArkTS';
-import { router } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
 import { window } from '@kit.ArkUI';
 import notificationManager from '@ohos.notificationManager';
@@ -3154,6 +3153,8 @@ struct BrandThemePickerDialog {
 @Entry
 @Component
 struct Index {
+  // 主导航栈（router→Navigation 重构）：子页面/引导页均为栈内 NavDestination（系统路由表 router_map.json）
+  pathStack: NavPathStack = new NavPathStack();
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @StorageProp('brand_light') brandLight: string = '#7B93FF';
   @StorageProp('brand_deep') brandDeep: string = '#3A55E0';
@@ -5213,6 +5214,22 @@ struct Index {
 
   async aboutToAppear() {
     console.info('📌 aboutToAppear 开始');
+    // 导航栈发布到 AppStorage：EntryAbility 隐私重锁时从全局取栈并 clear() 回主页
+    AppStorage.setOrCreate('navPathStack', this.pathStack);
+    // 首启引导（重构前由 EntryAbility 按引导标记直接加载引导页）：同步读 guide_intro_done，
+    // 未完成则压入引导页 NavDestination，同步读避免首页内容闪现
+    try {
+      const hostContext = this.getUIContext().getHostContext();
+      if (hostContext !== undefined) {
+        const prefs = dataPreferences.getPreferencesSync(hostContext, { name: 'bill_data' });
+        const introDone = prefs.getSync('guide_intro_done', false) as boolean;
+        if (!introDone) {
+          this.pathStack.pushPathByName('GuideIntroPage', undefined);
+        }
+      }
+    } catch (e) {
+      console.error('读取引导状态失败: ' + JSON.stringify(e));
+    }
     this.loadUserProgress();
     this.initPrivacyLockState();
     this.loadHapticEnabled();
@@ -6745,10 +6762,7 @@ struct Index {
 
   // 分类管理（进入当前账本的分类管理页）
   openCategoryManager() {
-    router.pushUrl({
-      url: 'pages/CategoryManagePage',
-      params: { ledgerId: this.currentLedgerId } as CategoryManageParams
-    });
+    this.pathStack.pushPathByName('CategoryManagePage', { ledgerId: this.currentLedgerId } as CategoryManageParams);
   }
 
   private async exportBills(type: 'currentMonth' | 'all') {
@@ -7717,15 +7731,15 @@ struct Index {
     Menu() {
       MenuItem({ content: '每周报告' })
         .onClick(() => {
-          router.pushUrl({ url: 'pages/WeeklyReportPage' });
+          this.pathStack.pushPathByName('WeeklyReportPage', undefined);
         })
       MenuItem({ content: '月度报告' })
         .onClick(() => {
-          router.pushUrl({ url: 'pages/MonthlyReportPage' });
+          this.pathStack.pushPathByName('MonthlyReportPage', undefined);
         })
       MenuItem({ content: '年度报告' })
         .onClick(() => {
-          router.pushUrl({ url: 'pages/AnnualReportPage' });
+          this.pathStack.pushPathByName('AnnualReportPage', undefined);
         })
     }
   }
@@ -7830,7 +7844,7 @@ struct Index {
           .fontSize(15)
           .onClick(() => {
             this.showLedgerSheet = false;
-            router.pushUrl({ url: 'pages/LedgerManagePage' });
+            this.pathStack.pushPathByName('LedgerManagePage', undefined);
           })
       }
       .width('100%')
@@ -8249,6 +8263,8 @@ struct Index {
 
   // ---------- 主界面 ----------
   build() {
+    // Navigation 重构：主界面为 NavBar（Stack 模式），子页面经系统路由表（router_map.json）压入
+    Navigation(this.pathStack) {
     Stack() {
       Column() {
       HdsTabs({ barPosition: this.isWideScreen ? BarPosition.Start : BarPosition.End, index: this.currentTabIndex }) {
@@ -8437,7 +8453,7 @@ struct Index {
                 }
               })
               .onClick(() => {
-                router.pushUrl({ url: 'pages/AssetDetailPage' });
+                this.pathStack.pushPathByName('AssetDetailPage', undefined);
               })
 
               Blank().width(12) */
@@ -9401,6 +9417,7 @@ struct Index {
           Row() {
             WealthTab({
               totalAsset: this.totalAsset,
+              navPathStack: this.pathStack,
               onAssetsChanged: () => { this.loadTotalAsset(); },
               onWealthDataChanged: () => { this.loadReminderData(); }
             })
@@ -9556,7 +9573,7 @@ struct Index {
                 .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                 .margin({ top: 12,bottom: 16 })
                 .onClick(() => {
-                  router.pushUrl({ url: 'pages/AchievementPage' });
+                  this.pathStack.pushPathByName('AchievementPage', undefined);
                 })
 
                 // ===== 2. 总资产/收支统计卡片 =====
@@ -9593,7 +9610,7 @@ struct Index {
                     }
                   })
                   .onClick(() => {
-                    router.pushUrl({ url: 'pages/AssetDetailPage' });
+                    this.pathStack.pushPathByName('AssetDetailPage', undefined);
                   })
 
                   Blank().width(10)
@@ -9673,7 +9690,7 @@ struct Index {
                       this.openCategoryManager();
                     })
                     this.FunctionItem($r('sys.symbol.label'), '标签管理', () => {
-                      router.pushUrl({ url: 'pages/TagManagePage' });
+                      this.pathStack.pushPathByName('TagManagePage', undefined);
                     })
                   }
                   .width('100%')
@@ -9717,7 +9734,7 @@ struct Index {
                   .border({ width: { bottom: 1 }, color: $r('app.color.border_color') })
                   .onClick(() => {
                     hapticTick();
-                    router.pushUrl({ url: 'pages/GuideIntroPage' });
+                    this.pathStack.pushPathByName('GuideIntroPage', undefined);
                   })
 
                   // 账本管理
@@ -9738,7 +9755,7 @@ struct Index {
                   .padding({ top: 14, bottom: 14 })
                   .border({ width: { bottom: 1 }, color: $r('app.color.border_color') })
                   .onClick(() => {
-                    router.pushUrl({ url: 'pages/LedgerManagePage' });
+            this.pathStack.pushPathByName('LedgerManagePage', undefined);
                   })
 
                   // 周期账单
@@ -9759,7 +9776,7 @@ struct Index {
                   .padding({ top: 14, bottom: 14 })
                   .border({ width: { bottom: 1 }, color: $r('app.color.border_color') })
                   .onClick(() => {
-                    router.pushUrl({ url: 'pages/RecurringManagePage' });
+                    this.pathStack.pushPathByName('RecurringManagePage', undefined);
                   })
 
                   // 回收站
@@ -9780,7 +9797,7 @@ struct Index {
                   .padding({ top: 14, bottom: 14 })
                   .border({ width: { bottom: 1 }, color: $r('app.color.border_color') })
                   .onClick(() => {
-                    router.pushUrl({ url: 'pages/RecycleBinPage' });
+                    this.pathStack.pushPathByName('RecycleBinPage', undefined);
                   })
 
                   // 隐私锁
@@ -10210,6 +10227,9 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+    }
+    .mode(NavigationMode.Stack)
+    .hideTitleBar(true)
   }
 
 }

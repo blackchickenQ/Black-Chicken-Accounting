@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import dataPreferences from '@ohos.data.preferences';
 import { hapticTick } from '../common/Haptics';
@@ -63,9 +62,10 @@ import {
 } from '../common/Gameplay';
 
 // ========== 小鸡养成页：小鸡舞台（等级/形态）+ 宝藏网格（原勋章墙） ==========
-@Entry
 @Component
 struct AchievementPage {
+  // 所在导航栈：由 NavDestination.onReady 注入
+  pathStack: NavPathStack = new NavPathStack();
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @StorageProp('brand_tint') brandTint: string = '#EEF1FE';
   @State userXp: number = 0;
@@ -560,6 +560,7 @@ struct AchievementPage {
   @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
+    NavDestination() {
     Row() {
     Column() {
       // 标题栏
@@ -578,7 +579,7 @@ struct AchievementPage {
             }
           })
           .onClick(() => {
-            router.back();
+            this.pathStack.pop();
           })
           .margin({ right: 8 })
 
@@ -1317,7 +1318,7 @@ struct AchievementPage {
                 .padding({ left: 14, right: 14, top: 8, bottom: 8 })
                 .onClick(() => {
                   hapticTick();
-                  router.pushUrl({ url: 'pages/PlaygroundPage' });
+                  this.pathStack.pushPathByName('PlaygroundPage', undefined);
                 })
             }
             .width('100%')
@@ -1637,6 +1638,20 @@ struct AchievementPage {
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
+    }
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.bg_main'))
+    .onReady((ctx: NavDestinationContext) => {
+      this.pathStack = ctx.pathStack;
+    })
   }
 
+}
+
+// 系统路由表（router_map.json）构建入口：导航栈按 name 路由到此页
+@Builder
+export function AchievementPageBuilder(name: string, param: object) {
+  if (name === 'AchievementPage') {
+    AchievementPage()
+  }
 }

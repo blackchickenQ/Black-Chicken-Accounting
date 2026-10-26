@@ -1,5 +1,4 @@
 // pages/RecurringManagePage.ets
-import { router } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import {
@@ -406,9 +405,10 @@ struct RecurringEditDialog {
   }
 }
 
-@Entry
 @Component
 struct RecurringManagePage {
+  // 所在导航栈：由 NavDestination.onReady 注入
+  pathStack: NavPathStack = new NavPathStack();
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @State rules: RecurringBill[] = [];
   @State ledgers: LedgerItem[] = [];
@@ -573,6 +573,7 @@ struct RecurringManagePage {
   @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
+    NavDestination() {
     Row() {
     Column() {
       // 标题栏
@@ -591,7 +592,7 @@ struct RecurringManagePage {
             }
           })
           .onClick(() => {
-            router.back();
+            this.pathStack.pop();
           })
           .margin({ right: 8 })
 
@@ -765,6 +766,20 @@ struct RecurringManagePage {
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
+    }
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.bg_main'))
+    .onReady((ctx: NavDestinationContext) => {
+      this.pathStack = ctx.pathStack;
+    })
   }
 
+}
+
+// 系统路由表（router_map.json）构建入口：导航栈按 name 路由到此页
+@Builder
+export function RecurringManagePageBuilder(name: string, param: object) {
+  if (name === 'RecurringManagePage') {
+    RecurringManagePage()
+  }
 }

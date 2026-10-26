@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { AnimationConfig } from './Index';
@@ -100,9 +99,10 @@ struct InputDialog {
   }
 }
 
-@Entry
 @Component
 struct AssetDetailPage {
+  // 所在导航栈：由 NavDestination.onReady 注入
+  pathStack: NavPathStack = new NavPathStack();
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @State assetList: AssetCategory[] = [];
   @State refreshKey: number = 0;   // ✅ 新增刷新标志
@@ -258,6 +258,7 @@ struct AssetDetailPage {
   @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
+    NavDestination() {
     Row() {
     Column() {
       // 标题栏
@@ -276,7 +277,7 @@ struct AssetDetailPage {
             }
           })
           .onClick(() => {
-            router.back();
+            this.pathStack.pop();
           })
           .margin({ right: 8 })
 
@@ -310,7 +311,7 @@ struct AssetDetailPage {
           // 返回主页并切换到财富页资产界面
           AppStorage.setOrCreate('wealth_mode', 'asset');
           AppStorage.setOrCreate('jump_to_wealth_asset', true);
-          router.back();
+          this.pathStack.pop();
         })
       }
       .width('100%')
@@ -460,8 +461,22 @@ struct AssetDetailPage {
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
+    }
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.bg_main'))
+    .onReady((ctx: NavDestinationContext) => {
+      this.pathStack = ctx.pathStack;
+    })
   }
 
 
   private colorPalette: string[] = ASSET_PALETTE;
+}
+
+// 系统路由表（router_map.json）构建入口：导航栈按 name 路由到此页
+@Builder
+export function AssetDetailPageBuilder(name: string, param: object) {
+  if (name === 'AssetDetailPage') {
+    AssetDetailPage()
+  }
 }

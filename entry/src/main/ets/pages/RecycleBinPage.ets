@@ -1,5 +1,4 @@
 // pages/RecycleBinPage.ets
-import { router } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { BillItem, RecycleBillItem, getCategoryColor, AnimationConfig } from './Index';
@@ -15,9 +14,10 @@ interface AssetCategory {
   amount: number;
 }
 
-@Entry
 @Component
 struct RecycleBinPage {
+  // 所在导航栈：由 NavDestination.onReady 注入
+  pathStack: NavPathStack = new NavPathStack();
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @State recycleItems: RecycleBillItem[] = [];
   @State pressedChipKey: string = '';
@@ -179,6 +179,7 @@ struct RecycleBinPage {
   @StorageProp('navBarVp') navBarVp: number = 28;
 
   build() {
+    NavDestination() {
     Row() {
     Column() {
       Row() {
@@ -196,7 +197,7 @@ struct RecycleBinPage {
             }
           })
           .onClick(() => {
-            router.back();
+            this.pathStack.pop();
           })
           .margin({ right: 8 })
 
@@ -387,6 +388,20 @@ struct RecycleBinPage {
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
+    }
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.bg_main'))
+    .onReady((ctx: NavDestinationContext) => {
+      this.pathStack = ctx.pathStack;
+    })
   }
 
+}
+
+// 系统路由表（router_map.json）构建入口：导航栈按 name 路由到此页
+@Builder
+export function RecycleBinPageBuilder(name: string, param: object) {
+  if (name === 'RecycleBinPage') {
+    RecycleBinPage()
+  }
 }

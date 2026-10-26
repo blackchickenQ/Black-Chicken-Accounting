@@ -1,0 +1,69 @@
+﻿{
+  "routerMap": [
+    {
+      "buildFunction": "AssetDetailPageBuilder",
+      "name": "AssetDetailPage",
+      "pageSourceFile": "src/main/ets/pages/AssetDetailPage.ets"
+    },
+    {
+      "buildFunction": "TagManagePageBuilder",
+      "name": "TagManagePage",
+      "pageSourceFile": "src/main/ets/pages/TagManagePage.ets"
+    },
+    {
+      "buildFunction": "LedgerManagePageBuilder",
+      "name": "LedgerManagePage",
+      "pageSourceFile": "src/main/ets/pages/LedgerManagePage.ets"
+    },
+    {
+      "buildFunction": "CategoryManagePageBuilder",
+      "name": "CategoryManagePage",
+      "pageSourceFile": "src/main/ets/pages/CategoryManagePage.ets"
+    },
+    {
+      "buildFunction": "RecurringManagePageBuilder",
+      "name": "RecurringManagePage",
+      "pageSourceFile": "src/main/ets/pages/RecurringManagePage.ets"
+    },
+    {
+      "buildFunction": "AchievementPageBuilder",
+      "name": "AchievementPage",
+      "pageSourceFile": "src/main/ets/pages/AchievementPage.ets"
+    },
+    {
+      "buildFunction": "RecycleBinPageBuilder",
+      "name": "RecycleBinPage",
+      "pageSourceFile": "src/main/ets/pages/RecycleBinPage.ets"
+    },
+    {
+      "buildFunction": "MonthlyReportPageBuilder",
+      "name": "MonthlyReportPage",
+      "pageSourceFile": "src/main/ets/pages/MonthlyReportPage.ets"
+    },
+    {
+      "buildFunction": "AnnualReportPageBuilder",
+      "name": "AnnualReportPage",
+      "pageSourceFile": "src/main/ets/pages/AnnualReportPage.ets"
+    },
+    {
+      "buildFunction": "WeeklyReportPageBuilder",
+      "name": "WeeklyReportPage",
+      "pageSourceFile": "src/main/ets/pages/WeeklyReportPage.ets"
+    },
+    {
+      "buildFunction": "SavingGoalDetailPageBuilder",
+      "name": "SavingGoalDetailPage",
+      "pageSourceFile": "src/main/ets/pages/SavingGoalDetailPage.ets"
+    },
+    {
+      "buildFunction": "GuideIntroPageBuilder",
+      "name": "GuideIntroPage",
+      "pageSourceFile": "src/main/ets/pages/GuideIntroPage.ets"
+    },
+    {
+      "buildFunction": "PlaygroundPageBuilder",
+      "name": "PlaygroundPage",
+      "pageSourceFile": "src/main/ets/pages/PlaygroundPage.ets"
+    }
+  ]
+}

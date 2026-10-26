@@ -32,7 +32,7 @@
       {
         name: 'default',
         signingConfig: 'default',
-        targetSdkVersion: '6.1.1(24)',
+        targetSdkVersion: '26.0.0',
         compatibleSdkVersion: '5.0.2(14)',
         runtimeOS: 'HarmonyOS',
         buildOption: {
@@ -41,8 +41,8 @@
             useNormalizedOHMUrl: true,
           },
         },
-        versionCode: 1000007,
-        versionName: '1.5.0',
+        versionCode: 1000008,
+        versionName: '2.0.0',
       },
     ],
     buildModeSet: [

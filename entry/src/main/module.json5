@@ -80,6 +80,10 @@
       {
         "name": "client_id",
         "value": "6917612133144080469"
+      },
+      {
+        "name": "ohos.arkui.UIMaterial.state",
+        "value": "enable"
       }
     ]
   }

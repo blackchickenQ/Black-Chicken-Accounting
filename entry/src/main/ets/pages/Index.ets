@@ -4,7 +4,7 @@ import dataPreferences from '@ohos.data.preferences';
 import { picker } from '@kit.CoreFileKit';
 import { systemShare } from '@kit.ShareKit';
 import { common } from '@kit.AbilityKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { BusinessError, deviceInfo } from '@kit.BasicServicesKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { fileUri } from '@kit.CoreFileKit';
 import { uniformTypeDescriptor as utd } from '@kit.ArkData';
@@ -6562,14 +6562,20 @@ struct Index {
   }
 
   async enableReminder() {
+    let notificationReady = false;
     try {
       await notificationManager.requestEnableNotification();
+      notificationReady = true;
     } catch (e) {
       const err = e as BusinessError;
       console.error('请求通知授权失败: ' + JSON.stringify(err));
-      this.setReminderOnAnimated(false);
-      this.getUIContext().getPromptAction().showToast({ message: '需要开启通知权限才能提醒，请在设置中允许通知', duration: 2500 });
-      return;
+      // 授权弹窗被拒后，引导用户到通知设置面板开启
+      notificationReady = await this.requestNotificationViaSettingsPanel();
+      if (!notificationReady) {
+        this.setReminderOnAnimated(false);
+        this.getUIContext().getPromptAction().showToast({ message: '需要开启通知权限才能提醒，请在设置中允许通知', duration: 2500 });
+        return;
+      }
     }
     const published = await this.publishBookkeepingReminder();
     if (published) {
@@ -6581,6 +6587,30 @@ struct Index {
     } else {
       this.setReminderOnAnimated(false);
     }
+  }
+
+  // 授权弹窗被拒后的兜底引导：鸿蒙7（API 26+）半模态拉起通知设置面板并返回开启结果；低版本回退为打开通知设置页
+  async requestNotificationViaSettingsPanel(): Promise<boolean> {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    if (!context) {
+      return false;
+    }
+    try {
+      if (deviceInfo.sdkApiVersion >= 24 && deviceInfo.apiAvailable('26.0.0')) {
+        // 鸿蒙7新特性：半模态通知设置面板，用户可在面板内直接开启，返回实际开关状态
+        const settings = await notificationManager.openNotificationSettingsWithResult(context);
+        return settings !== undefined && settings.notificationEnabled === true;
+      }
+      if (deviceInfo.sdkApiVersion >= 13) {
+        // 低版本回退：打开应用通知设置页；发布环节会校验通知开关并给出提示
+        await notificationManager.openNotificationSettings(context);
+        return true;
+      }
+    } catch (e) {
+      const err = e as BusinessError;
+      console.error('打开通知设置面板失败: ' + JSON.stringify(err));
+    }
+    return false;
   }
 
   async disableReminder() {

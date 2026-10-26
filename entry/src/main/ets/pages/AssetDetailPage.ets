@@ -4,6 +4,7 @@ import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { AnimationConfig } from './Index';
 import { ASSET_PALETTE } from '../common/AppTheme';
+import { MotionCurves } from '../common/Motion';
 
 interface AssetCategory {
   name: string;
@@ -107,6 +108,7 @@ struct AssetDetailPage {
   @State assetList: AssetCategory[] = [];
   @State refreshKey: number = 0;   // ✅ 新增刷新标志
   @State pressedSummary: boolean = false;
+  @State pressedChipKey: string = '';
   // 小眼睛：控制金额显示/隐藏（隐藏时显示 ¥****）
   @State amountVisible: boolean = true;
   private context = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -252,6 +254,10 @@ struct AssetDetailPage {
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
   @StorageProp('isWideScreen') isWideScreen: boolean = false;
 
+  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
+  @StorageProp('statusBarVp') statusBarVp: number = 46;
+  @StorageProp('navBarVp') navBarVp: number = 28;
+
   build() {
     Row() {
     Column() {
@@ -261,6 +267,15 @@ struct AssetDetailPage {
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .fontColor([$r('app.color.text_primary')])
+          .scale({ x: this.pressedChipKey === 'back' ? 0.8 : 1, y: this.pressedChipKey === 'back' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'back';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => {
             router.back();
           })
@@ -283,6 +298,15 @@ struct AssetDetailPage {
             .fillColor(this.brandMain)
         }
         .padding({ left: 8, right: 4, top: 4, bottom: 4 })
+        .scale({ x: this.pressedChipKey === 'manage' ? 0.9 : 1, y: this.pressedChipKey === 'manage' ? 0.9 : 1 })
+        .animation({ curve: MotionCurves.PRESS })
+        .onTouch((event: TouchEvent) => {
+          if (event.type === TouchType.Down) {
+            this.pressedChipKey = 'manage';
+          } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+            this.pressedChipKey = '';
+          }
+        })
         .onClick(() => {
           // 返回主页并切换到财富页资产界面
           AppStorage.setOrCreate('wealth_mode', 'asset');
@@ -291,7 +315,7 @@ struct AssetDetailPage {
         })
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 20, bottom: 16 })
+      .padding({ left: 20, right: 20, top: this.statusBarVp + 20, bottom: 16 })
 
       Divider()
         .color($r('app.color.border_color'))
@@ -410,13 +434,22 @@ struct AssetDetailPage {
           .fontColor($r('app.color.text_white'))
           .borderRadius(24)
           .fontSize(16)
+          .scale({ x: this.pressedChipKey === 'create' ? 0.94 : 1, y: this.pressedChipKey === 'create' ? 0.94 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'create';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => {
             this.openAddDialog();
           })
       }
       .width('100%')
       .padding({ left: 20, right: 20 })
-      .margin({ bottom: 20 })
+      .margin({ bottom: this.navBarVp + 20 })
     }
     .width('100%')
     .height('100%')
@@ -429,6 +462,7 @@ struct AssetDetailPage {
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
   }
+
 
   private colorPalette: string[] = ASSET_PALETTE;
 }

@@ -31,6 +31,8 @@ import {
   AchievementDef
 } from '../common/Achievements';
 import { getStreakMultiplier, markDailyTask, dropCoinsIntoPiggy, boostTravel, trackFortuneBill } from '../common/Gameplay';
+import { trackPlaygroundOnBill } from '../common/GameplayPlus';
+import { HandIcon } from '../common/HandIcon';
 import { BaseCalendar } from 'base_calendar';
 import { curves } from '@kit.ArkUI';
 import { updateAllWidgetCards } from '../entryformability/EntryFormAbility';
@@ -43,6 +45,7 @@ import { ReminderItem, ReminderInput, ReminderCreditAccount, ReminderSavingGoal,
 import { authentication } from '@kit.AccountKit';
 import { pickBillPhotos, deleteBillPhotos, clearAllBillPhotos, MAX_BILL_PHOTOS } from '../common/BillPhotos';
 import { hapticTick } from '../common/Haptics';
+import { MotionCurves } from '../common/Motion';
 
 
 // ---------- 1. 全局动画配置 ----------
@@ -169,6 +172,9 @@ struct AddBillSheetContent {
   @State selectedTags: string[] = [];  // 已选择的标签列表
   @State availableTags: string[] = [];  // 已有的标签列表
   @State selectedPhotos: string[] = [];  // 已选小票图片
+  @State pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
+  @State cancelBtnScale: number = 1;  // 取消按钮按压缩放
+  @State confirmBtnScale: number = 1;  // 添加按钮按压缩放
   submitted: boolean = false;  // 是否已提交（取消时清理未使用的图片文件）
 
 
@@ -206,7 +212,7 @@ struct AddBillSheetContent {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const prefs = await dataPreferences.getPreferences(context, 'bill_data');
     const data = await prefs.get('all_tags', '[]') as string;
-    this.availableTags = JSON.parse(data);
+    this.availableTags = JSON.parse(data) as string[];
   } catch (e) {
     console.error('加载标签失败', e);
   }
@@ -259,7 +265,7 @@ struct AddBillSheetContent {
       const parsed = JSON.parse(data) as AssetCategory[];
       if (parsed.length > 0) {
         this.sourceList = parsed.map((item: AssetCategory) => item.name);
-        if (this.sourceList.includes(this.selectedSource)) {
+        if (!this.sourceList.includes(this.selectedSource)) {
           this.selectedSource = this.sourceList[0];
         }
       }
@@ -344,6 +350,15 @@ struct AddBillSheetContent {
                   .height(32)
                   .fontSize(13)
                   .margin({ right: 6, bottom: 6 })
+                  .scale({ x: this.pressedChipKey === ('cat_' + cat) ? 0.9 : 1, y: this.pressedChipKey === ('cat_' + cat) ? 0.9 : 1 })
+                  .animation({ curve: MotionCurves.PRESS })
+                  .onTouch((event: TouchEvent) => {
+                    if (event.type === TouchType.Down) {
+                      this.pressedChipKey = 'cat_' + cat;
+                    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                      this.pressedChipKey = '';
+                    }
+                  })
                   .onClick(() => {
                     hapticTick();
                     this.selectedCategory = cat;
@@ -375,6 +390,15 @@ struct AddBillSheetContent {
                   .height(32)
                   .fontSize(13)
                   .margin({ right: 6, bottom: 6 })
+                  .scale({ x: this.pressedChipKey === ('src_' + source) ? 0.9 : 1, y: this.pressedChipKey === ('src_' + source) ? 0.9 : 1 })
+                  .animation({ curve: MotionCurves.PRESS })
+                  .onTouch((event: TouchEvent) => {
+                    if (event.type === TouchType.Down) {
+                      this.pressedChipKey = 'src_' + source;
+                    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                      this.pressedChipKey = '';
+                    }
+                  })
                   .onClick(() => {
                     hapticTick();
                     this.selectedSource = source;
@@ -541,6 +565,15 @@ struct AddBillSheetContent {
               .padding({ left: 20, right: 20 })
               .height(36)
               .fontSize(14)
+              .scale({ x: this.pressedChipKey === 'type_支出' ? 0.92 : 1, y: this.pressedChipKey === 'type_支出' ? 0.92 : 1 })
+              .animation({ curve: MotionCurves.PRESS })
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  this.pressedChipKey = 'type_支出';
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  this.pressedChipKey = '';
+                }
+              })
               .onClick(() => { hapticTick(); this.selectedType = '支出'; })
 
             Blank()
@@ -555,49 +588,79 @@ struct AddBillSheetContent {
               .padding({ left: 20, right: 20 })
               .height(36)
               .fontSize(14)
+              .scale({ x: this.pressedChipKey === 'type_收入' ? 0.92 : 1, y: this.pressedChipKey === 'type_收入' ? 0.92 : 1 })
+              .animation({ curve: MotionCurves.PRESS })
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  this.pressedChipKey = 'type_收入';
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  this.pressedChipKey = '';
+                }
+              })
               .onClick(() => { hapticTick(); this.selectedType = '收入'; })
           }
           .width('100%')
           .justifyContent(FlexAlign.Center)
           .margin({ bottom: 16 })
 
-          Row() {
-            Button('取消')
-              .backgroundColor('transparent')
-              .fontColor($r('app.color.text_secondary'))
-              .borderRadius(20)
-              .height(40)
-              .fontSize(15)
-              .layoutWeight(1)
-              .onClick(() => { this.onClose(); })
-
-            Blank()
-              .width(16)
-
-            Button('添加')
-              .backgroundColor(this.brandMain)
-              .fontColor($r('app.color.text_white'))
-              .borderRadius(22)
-              .height(44)
-              .fontSize(15)
-              .layoutWeight(1)
-              .onClick(() => {
-                this.handleAddBill();
-              })
-          }
-          .width('100%')
         }
         .width('100%')
-        .padding({ bottom: 4 })
+        .padding({ bottom: 12 })
       }
       .width('100%')
       .layoutWeight(1)
       .scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+
+      // 操作按钮固定在弹窗底部（不随内容滚动），消除内容不足一屏时底部的大段空白
+      Row() {
+        Button('取消')
+          .backgroundColor('transparent')
+          .fontColor($r('app.color.text_secondary'))
+          .borderRadius(20)
+          .height(40)
+          .fontSize(15)
+          .layoutWeight(1)
+          .scale({ x: this.cancelBtnScale, y: this.cancelBtnScale })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.cancelBtnScale = 0.94;
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.cancelBtnScale = 1;
+            }
+          })
+          .onClick(() => { this.onClose(); })
+
+        Blank()
+          .width(16)
+
+        Button('添加')
+          .backgroundColor(this.brandMain)
+          .fontColor($r('app.color.text_white'))
+          .borderRadius(22)
+          .height(44)
+          .fontSize(15)
+          .layoutWeight(1)
+          .scale({ x: this.confirmBtnScale, y: this.confirmBtnScale })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.confirmBtnScale = 0.93;
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.confirmBtnScale = 1;
+            }
+          })
+          .onClick(() => {
+            this.handleAddBill();
+          })
+      }
+      .width('100%')
+      .margin({ top: 8 })
     }
     .width('100%')
     .height('100%')
-    .padding({ left: 20, right: 20, bottom: 28 })
+    .padding({ left: 20, right: 20, bottom: 24 })
   }
 
   private handleAddBill() {
@@ -655,6 +718,9 @@ struct EditBillSheetContent {
   @State selectedTags: string[] = [];
   @State availableTags: string[] = [];
   @State internalPhotos: string[] = [];
+  @State pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
+  @State cancelBtnScale: number = 1;  // 取消按钮按压缩放
+  @State confirmBtnScale: number = 1;  // 保存按钮按压缩放
   submitted: boolean = false;
 
   aboutToAppear() {
@@ -728,7 +794,7 @@ struct EditBillSheetContent {
       const prefs = await dataPreferences.getPreferences(context, 'bill_data');
       const data = await prefs.get('all_tags', '[]') as string;
       console.info('📌 EditBillSheetContent 加载 all_tags:', data);
-      this.availableTags = JSON.parse(data);
+      this.availableTags = JSON.parse(data) as string[];
     } catch (e) {
       console.error('加载标签失败', e);
     }
@@ -838,6 +904,15 @@ struct EditBillSheetContent {
                   .height(32)
                   .fontSize(13)
                   .margin({ right: 6, bottom: 6 })
+                  .scale({ x: this.pressedChipKey === ('cat_' + cat) ? 0.9 : 1, y: this.pressedChipKey === ('cat_' + cat) ? 0.9 : 1 })
+                  .animation({ curve: MotionCurves.PRESS })
+                  .onTouch((event: TouchEvent) => {
+                    if (event.type === TouchType.Down) {
+                      this.pressedChipKey = 'cat_' + cat;
+                    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                      this.pressedChipKey = '';
+                    }
+                  })
                   .onClick(() => {
                     hapticTick();
                     this.internalCategory = cat;
@@ -869,6 +944,15 @@ struct EditBillSheetContent {
                   .height(32)
                   .fontSize(13)
                   .margin({ right: 6, bottom: 6 })
+                  .scale({ x: this.pressedChipKey === ('src_' + source) ? 0.9 : 1, y: this.pressedChipKey === ('src_' + source) ? 0.9 : 1 })
+                  .animation({ curve: MotionCurves.PRESS })
+                  .onTouch((event: TouchEvent) => {
+                    if (event.type === TouchType.Down) {
+                      this.pressedChipKey = 'src_' + source;
+                    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                      this.pressedChipKey = '';
+                    }
+                  })
                   .onClick(() => {
                     hapticTick();
                     this.internalSource = source;
@@ -1030,6 +1114,15 @@ struct EditBillSheetContent {
               .padding({ left: 20, right: 20 })
               .height(36)
               .fontSize(14)
+              .scale({ x: this.pressedChipKey === 'type_支出' ? 0.92 : 1, y: this.pressedChipKey === 'type_支出' ? 0.92 : 1 })
+              .animation({ curve: MotionCurves.PRESS })
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  this.pressedChipKey = 'type_支出';
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  this.pressedChipKey = '';
+                }
+              })
               .onClick(() => { hapticTick(); this.internalType = '支出'; })
 
             Blank()
@@ -1044,49 +1137,79 @@ struct EditBillSheetContent {
               .padding({ left: 20, right: 20 })
               .height(36)
               .fontSize(14)
+              .scale({ x: this.pressedChipKey === 'type_收入' ? 0.92 : 1, y: this.pressedChipKey === 'type_收入' ? 0.92 : 1 })
+              .animation({ curve: MotionCurves.PRESS })
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  this.pressedChipKey = 'type_收入';
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  this.pressedChipKey = '';
+                }
+              })
               .onClick(() => { hapticTick(); this.internalType = '收入'; })
           }
           .width('100%')
           .justifyContent(FlexAlign.Center)
           .margin({ bottom: 16 })
 
-          Row() {
-            Button('取消')
-              .backgroundColor('transparent')
-              .fontColor($r('app.color.text_secondary'))
-              .borderRadius(20)
-              .height(40)
-              .fontSize(15)
-              .layoutWeight(1)
-              .onClick(() => { this.onClose(); })
-
-            Blank()
-              .width(16)
-
-            Button('保存')
-              .backgroundColor(this.brandMain)
-              .fontColor($r('app.color.text_white'))
-              .borderRadius(22)
-              .height(44)
-              .fontSize(15)
-              .layoutWeight(1)
-              .onClick(() => {
-                this.handleUpdateBill();
-              })
-          }
-          .width('100%')
         }
         .width('100%')
-        .padding({ bottom: 4 })
+        .padding({ bottom: 12 })
       }
       .width('100%')
       .layoutWeight(1)
       .scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+
+      // 操作按钮固定在弹窗底部（不随内容滚动），消除内容不足一屏时底部的大段空白
+      Row() {
+        Button('取消')
+          .backgroundColor('transparent')
+          .fontColor($r('app.color.text_secondary'))
+          .borderRadius(20)
+          .height(40)
+          .fontSize(15)
+          .layoutWeight(1)
+          .scale({ x: this.cancelBtnScale, y: this.cancelBtnScale })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.cancelBtnScale = 0.94;
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.cancelBtnScale = 1;
+            }
+          })
+          .onClick(() => { this.onClose(); })
+
+        Blank()
+          .width(16)
+
+        Button('保存')
+          .backgroundColor(this.brandMain)
+          .fontColor($r('app.color.text_white'))
+          .borderRadius(22)
+          .height(44)
+          .fontSize(15)
+          .layoutWeight(1)
+          .scale({ x: this.confirmBtnScale, y: this.confirmBtnScale })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.confirmBtnScale = 0.93;
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.confirmBtnScale = 1;
+            }
+          })
+          .onClick(() => {
+            this.handleUpdateBill();
+          })
+      }
+      .width('100%')
+      .margin({ top: 8 })
     }
     .width('100%')
     .height('100%')
-    .padding({ left: 20, right: 20, bottom: 28 })
+    .padding({ left: 20, right: 20, bottom: 24 })
   }
 
   private handleUpdateBill() {
@@ -1216,6 +1339,24 @@ struct SearchBillSheetContent {
           },
           (item: BillItem) => item.id.toString()
         )
+
+        // 空状态：结果为空时给出提示，避免底部大片留白
+        if (this.getFilteredBills().length === 0) {
+          ListItem() {
+            Column({ space: 10 }) {
+              Text(this.searchText.trim().length > 0 ? '没有找到相关账单' : '还没有账单，去记一笔吧')
+                .fontSize(15)
+                .fontColor($r('app.color.text_secondary'))
+              Text(this.searchText.trim().length > 0 ? '换个关键词试试' : '点右下角记一笔开始记账')
+                .fontSize(12)
+                .fontColor($r('app.color.text_secondary'))
+                .opacity(0.7)
+            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Center)
+            .padding({ top: 72, bottom: 24 })
+          }
+        }
       }
       .width('100%')
       .layoutWeight(1)
@@ -2534,13 +2675,8 @@ struct LoadingDialog {
     .padding(32)
     .backgroundColor($r('app.color.glass_bg'))
     .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-    .borderRadius(24)
-    .shadow({
-      radius: 16,
-      color: 'rgba(0, 0, 0, 0.08)',
-      offsetX: 0,
-      offsetY: 4
-    })
+    .borderRadius({ topLeft: 26, topRight: 23, bottomLeft: 25, bottomRight: 27 })
+    .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
   }
 }
 
@@ -2891,8 +3027,8 @@ struct MonthPickerDialog {
 
       DatePicker({
         selected: this.selectedDate,
-        start: new Date('2000-1-1'),
-        end: new Date('2099-12-31')
+        start: new Date(2000, 0, 1),
+        end: new Date(2099, 11, 31)
       })
         .onChange((value: DatePickerResult) => {
           const year = value.year ?? new Date().getFullYear();
@@ -2934,13 +3070,8 @@ struct MonthPickerDialog {
     .padding(20)
     .backgroundColor($r('app.color.glass_bg'))
     .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-    .borderRadius(24)
-    .shadow({
-      radius: 20,
-      color: 'rgba(0, 0, 0, 0.08)',
-      offsetX: 0,
-      offsetY: 4
-    })
+    .borderRadius({ topLeft: 26, topRight: 23, bottomLeft: 25, bottomRight: 27 })
+    .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
   }
 }
 
@@ -3072,6 +3203,8 @@ struct Index {
   @State statContentScale: number = 1;
   @State yearCanvasWidth: number = 400;
   @State manualBtnScale: number = 1;
+  @State pressedTabIdx: number = -1;  // 底部页签按压索引（Q弹缩放反馈）
+  @State tabIconPop: number = 1;  // 选中页签图标弹跳比例
   @State totalAsset: number = 0;
   // 成就系统：累计经验与已解锁勋章数（我的页展示）
   @State userXp: number = 0;
@@ -4694,7 +4827,7 @@ struct Index {
   }
 
   // 记账 +5 经验（连续记账有连击加成），并检查成就解锁（含解锁提示）
-  async grantBillXpAndCheck() {
+  async grantBillXpAndCheck(bill?: BillItem) {
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       if (!context) {
@@ -4713,13 +4846,23 @@ struct Index {
       await boostTravel(context);
       // 每日鸡运签：推进今日签上任务
       await trackFortuneBill(context);
+      // 新玩法：摇钱树浇水 / 签到打卡 / 守护战 / 无消费日结算
+      if (bill) {
+        const playground = await trackPlaygroundOnBill(context,
+          bill.ledgerId ?? DEFAULT_LEDGER_ID, bill.amount, bill.type);
+        if (playground.guardian === 'defeated') {
+          promptAction.showToast({ message: '吞金兽被击败！去小鸡页-玩法乐园领奖吧', duration: 2500 });
+        } else if (playground.treeWithered) {
+          promptAction.showToast({ message: '摇钱树因断签枯萎了…重新种一棵吧', duration: 2500 });
+        }
+      }
       const fresh = await checkAndUnlock(context, criteria);
       if (fresh.length > 0) {
         const names: string[] = fresh.map((d: AchievementDef): string => d.name);
-        promptAction.showToast({ message: `🐣 小鸡捡到新宝贝：${names.join('、')}！`, duration: 2500 });
+        promptAction.showToast({ message: `小鸡捡到新宝贝：${names.join('、')}！`, duration: 2500 });
       } else if (multiplier > 1) {
         promptAction.showToast({
-          message: `🔥 连续记账 ${criteria.streakDays} 天，成长值 +${gained}`,
+          message: `连续记账 ${criteria.streakDays} 天，成长值 +${gained}`,
           duration: 1800
         });
       }
@@ -5047,13 +5190,20 @@ struct Index {
   // 宽屏断点（由 EntryAbility 统一检测并写入 AppStorage）：窗口宽度 >= 840vp 时切换为侧边导航 + 内容限宽布局
   @StorageProp('isWideScreen') isWideScreen: boolean = false;
 
+  // 全屏沉浸式布局：状态栏避让高度（vp），由 EntryAbility 发布到 AppStorage，主内容列据此留白避让
+  @StorageProp('statusBarVp') statusBarVp: number = 46;
+  // 底部手势条避让高度（vp）：悬浮页签栏整体抬到手势条上方
+  @StorageProp('navBarVp') navBarVp: number = 28;
+
   // 宽屏时底部悬浮页签栏样式（窄屏返回悬浮样式，宽屏返回 undefined 使用侧边栏默认样式）
   private getTabBarFloatingStyle(): HdsTabsFloatingStyle | undefined {
     if (this.isWideScreen) {
       return undefined;
     }
     return {
-      barBottomMargin: 0,
+      // 页签栏悬浮于底部手势条上方：barBottomMargin 取手势条避让高度，
+      // 小横杠不再叠在栏体上，栏体与屏幕底边留出手势条空间
+      barBottomMargin: this.navBarVp,
       systemMaterialEffect: {
         materialType: hdsMaterial.MaterialType.IMMERSIVE,
         materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
@@ -6112,8 +6262,8 @@ struct Index {
     .width('100%')
     .padding(16)
     .backgroundColor($r('app.color.card_bg'))
-    .borderRadius(16)
-    .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+    .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+    .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
     .margin({ bottom: 12 })
   }
 
@@ -6146,7 +6296,7 @@ struct Index {
     this.refreshKey++;  // 强制刷新账单页分组列表（嵌套 ForEach 组键值需变化才会重渲染）
     this.saveBillsToPreferences();
     this.loadBudget();
-    this.grantBillXpAndCheck();  // 记账经验（含连击加成）并检查成就解锁
+    this.grantBillXpAndCheck(newBill);  // 记账经验（含连击加成）并检查成就解锁 + 新玩法钩子
   }
 
   // 删除账单：移入回收站（保留 30 天，可在"我的-回收站"恢复）
@@ -6254,7 +6404,9 @@ struct Index {
 
   getTotalDays(): number {
     if (this.bills.length === 0) return 0;
-    const firstDate = new Date(Math.min(...this.bills.map(b => b.date)));
+    const minDate = this.bills.reduce((min: number, b: BillItem): number => b.date < min ? b.date : min,
+      this.bills[0].date);
+    const firstDate = new Date(minDate);
     const now = new Date();
     const diff = now.getTime() - firstDate.getTime();
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
@@ -6576,7 +6728,7 @@ struct Index {
       if (type === 'currentMonth') {
         billsToExport = this.getFilteredBills();
       } else {
-        billsToExport = this.bills;
+        billsToExport = [...this.bills];
       }
 
       if (billsToExport.length === 0) {
@@ -7391,13 +7543,8 @@ struct Index {
       .width('100%')
       .padding(16)
       .backgroundColor($r('app.color.card_bg'))
-      .borderRadius(16)
-      .shadow({
-        radius: 8,
-        color: $r('app.color.shadow_color'),
-        offsetX: 0,
-        offsetY: 2
-      })
+      .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+      .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
       .margin({ bottom: 16 })
       .scale({ x: this.pressedCard === 'budget' ? 0.96 : 1, y: this.pressedCard === 'budget' ? 0.96 : 1 })
       .animation({ curve: AnimationConfig.SPRING })
@@ -7430,13 +7577,8 @@ struct Index {
       .width('100%')
       .padding(16)
       .backgroundColor($r('app.color.card_bg'))
-      .borderRadius(16)
-      .shadow({
-        radius: 8,
-        color: $r('app.color.shadow_color'),
-        offsetX: 0,
-        offsetY: 2
-      })
+      .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+      .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
       .margin({ bottom: 16 })
       .scale({ x: this.pressedCard === 'budget' ? 0.96 : 1, y: this.pressedCard === 'budget' ? 0.96 : 1 })
       .animation({ curve: AnimationConfig.SPRING })
@@ -7513,6 +7655,10 @@ struct Index {
       SymbolGlyph(icon)
         .fontSize(22)
         .fontColor(this.currentTabIndex === index ? [this.brandMain] : [$r('app.color.text_secondary')])
+        .scale({
+          x: this.currentTabIndex === index ? this.tabIconPop : 1,
+          y: this.currentTabIndex === index ? this.tabIconPop : 1
+        })
       Text(title)
         .fontSize(12)
         .fontColor(this.currentTabIndex === index ? this.brandMain : $r('app.color.text_secondary'))
@@ -7522,6 +7668,18 @@ struct Index {
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
+    .scale({
+      x: this.pressedTabIdx === index ? 0.88 : 1,
+      y: this.pressedTabIdx === index ? 0.88 : 1
+    })
+    .animation({ curve: MotionCurves.PRESS })
+    .onTouch((event: TouchEvent) => {
+      if (event.type === TouchType.Down) {
+        this.pressedTabIdx = index;
+      } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+        this.pressedTabIdx = -1;
+      }
+    })
   }
 
   // 统计页右上角"报告"按钮的弹出菜单：选择每周/月度/年度报告
@@ -8073,7 +8231,7 @@ struct Index {
           Column() {
             Row()
               .width('100%')
-              .height(10)
+              .height(this.statusBarVp + 10)
               .backgroundColor($r('app.color.bg_main'))
               .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
               .flexShrink(0)
@@ -8238,7 +8396,7 @@ struct Index {
                 angle: 135,
                 colors: [[this.brandLight, 0], [this.brandMain, 0.55], [this.brandDeep, 1]]
               })
-              .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
               .layoutWeight(1)
               .scale({ x: this.pressedCard === 'totalAsset' ? 0.96 : 1, y: this.pressedCard === 'totalAsset' ? 0.96 : 1 })
               .animation({ curve: AnimationConfig.SPRING })
@@ -8270,8 +8428,8 @@ struct Index {
               .width('100%')
               .padding({ top: 16, bottom: 16, left: 16, right: 16 })
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(20)
-              .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+              .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
+              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
               .layoutWeight(1)
               .scale({ x: this.pressedCard === 'monthChange' ? 0.96 : 1, y: this.pressedCard === 'monthChange' ? 0.96 : 1 })
               .animation({ curve: AnimationConfig.SPRING })
@@ -8390,7 +8548,7 @@ struct Index {
                       .width('100%')
                       .padding({ top: 14, left: 16, bottom: 14, right: 12 })
                       .backgroundColor($r('app.color.card_bg'))
-                      .borderRadius(12)
+                      .borderRadius({ topLeft: 14, topRight: 11, bottomLeft: 13, bottomRight: 15 })
                       .shadow({ radius: 6, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
                       .margin({ bottom: 8 })
                       .scale({ x: this.pressedBillId === item.id ? 0.96 : 1, y: this.pressedBillId === item.id ? 0.96 : 1 })
@@ -8408,10 +8566,11 @@ struct Index {
                   },
                   (item: BillItem) => item.id + '_' + this.refreshKey
                 )
+                // 尾部占位：滚动尽头末条内容完全露出悬浮页签栏上方（栏体贴底后视区更深）
                 ListItem() {
                   Column()
                     .width('100%')
-                    .height(80)
+                    .height(180)
                 }
                 .backgroundColor(Color.Transparent)
 
@@ -8426,9 +8585,8 @@ struct Index {
             .width('100%')
             .layoutWeight(1)
             .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(16)
-            .border({ width: 1, color: $r('app.color.border_color') })
-            .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+            .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+            .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
             .margin({ bottom: 16 })
             .translate({ x: this.homeContentShiftX })
             .opacity(this.homeContentAlpha)
@@ -8453,7 +8611,7 @@ struct Index {
           Column() {
             Row()
               .width('100%')
-              .height(10)
+              .height(this.statusBarVp + 10)
               .backgroundColor($r('app.color.bg_main'))
               .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
               .flexShrink(0)
@@ -8628,14 +8786,9 @@ struct Index {
                 }
                 .width('100%')
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius(16)
+                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
                 .padding(16)
-                .shadow({
-                  radius: 8,
-                  color: $r('app.color.shadow_color'),
-                  offsetX: 0,
-                  offsetY: 2
-                })
+                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                 .margin({ bottom: 16 })
 
                 Column() {
@@ -8718,14 +8871,9 @@ struct Index {
                 }
                 .width('100%')
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius(16)
+                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
                 .padding(16)
-                .shadow({
-                  radius: 8,
-                  color: $r('app.color.shadow_color'),
-                  offsetX: 0,
-                  offsetY: 2
-                })
+                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                 .margin({ bottom: 16 })
 
 
@@ -8759,9 +8907,9 @@ struct Index {
                 }
                 .width('100%')
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius(16)
+                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
                 .padding(16)
-                .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                 .margin({ bottom: 16 })
 
 
@@ -8828,14 +8976,9 @@ struct Index {
                 }
                 .width('100%')
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius(16)
+                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
                 .padding(16)
-                .shadow({
-                  radius: 8,
-                  color: $r('app.color.shadow_color'),
-                  offsetX: 0,
-                  offsetY: 2
-                })
+                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                 .margin({ bottom: 16 })
 
                 Row()
@@ -8874,7 +9017,7 @@ struct Index {
           Column() {
             Row()
               .width('100%')
-              .height(10)
+              .height(this.statusBarVp + 10)
               .backgroundColor($r('app.color.bg_main'))
               .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
               .flexShrink(0)
@@ -9149,8 +9292,8 @@ struct Index {
                   }
                   .width('100%')
                   .backgroundColor($r('app.color.card_bg'))
-                  .borderRadius(16)
-                  .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+                  .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                  .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                   .translate({
                     // 距中心越远的卡片偏移越大 → 卡片间距随滚动弹性伸缩
                     y: Math.max(-4, Math.min(4, groupIdx - this.billListCenterIdx)) * this.billGapStretch
@@ -9162,10 +9305,11 @@ struct Index {
               }, (group: DayBillGroup) => group.date.toString() + '_' + this.refreshKey + '_' +
                 this.billFilterCategory + '_' + this.billFilterTag)
 
+              // 尾部占位：滚动尽头末卡完全露出悬浮页签栏上方（栏体贴底后视区更深）
               ListItem() {
                 Column()
                   .width('100%')
-                  .height(80)
+                  .height(190)
               }
               .backgroundColor(Color.Transparent)
             }
@@ -9249,7 +9393,7 @@ struct Index {
             // 状态栏占位
             Row()
               .width('100%')
-              .height(10)
+              .height(this.statusBarVp + 10)
               .backgroundColor($r('app.color.bg_main'))
               .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
               .flexShrink(0)
@@ -9291,12 +9435,7 @@ struct Index {
                     angle: 135,
                     colors: [[this.brandLight, 0], [this.brandMain, 0.6], [this.brandDeep, 1]]
                   })
-                  .shadow({
-                    radius: 8,
-                    color: $r('app.color.shadow_color'),
-                    offsetX: 0,
-                    offsetY: 2
-                  })
+                  .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                   .justifyContent(FlexAlign.Center)
                   .margin({ right: 16 })
                   .onClick(() => {
@@ -9338,10 +9477,13 @@ struct Index {
                       .margin({ top: 2 })
 
                     // 成就信息：经验值 + 宝藏件数
-                    Text(`🐣 ${this.userXp} XP  ·  小鸡的宝藏 ${this.unlockedCount} 件`)
-                      .fontSize(12)
-                      .fontColor($r('app.color.text_secondary'))
-                      .margin({ top: 8 })
+                    Row({ space: 4 }) {
+                      HandIcon({ name: 'chick', iconSize: 14 })
+                      Text(`${this.userXp} XP  ·  小鸡的宝藏 ${this.unlockedCount} 件`)
+                        .fontSize(12)
+                        .fontColor($r('app.color.text_secondary'))
+                    }
+                    .margin({ top: 8 })
 
                     // 华为账号未登录时的登录提示（调试签名不支持账号登录，隐藏）
                     if (!this.huaweiAccount && CLOUD_FEATURES_ENABLED) {
@@ -9381,13 +9523,8 @@ struct Index {
                   right: 20
                 })
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius(16)
-                .shadow({
-                  radius: 8,
-                  color: $r('app.color.shadow_color'),
-                  offsetX: 0,
-                  offsetY: 2
-                })
+                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                 .margin({ top: 12,bottom: 16 })
                 .onClick(() => {
                   router.pushUrl({ url: 'pages/AchievementPage' });
@@ -9409,7 +9546,7 @@ struct Index {
                   .width('100%')
                   .padding({ top: 12, bottom: 12 })
                   .backgroundColor($r('app.color.card_bg'))
-                  .borderRadius(16)
+                  .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
                   .shadow({
                     radius: 4,
                     color: $r('app.color.shadow_color'),
@@ -9446,7 +9583,7 @@ struct Index {
                   .width('100%')
                   .padding({ top: 12, bottom: 12 })
                   .backgroundColor($r('app.color.card_bg'))
-                  .borderRadius(16)
+                  .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
                   .shadow({
                     radius: 4,
                     color: $r('app.color.shadow_color'),
@@ -9471,7 +9608,7 @@ struct Index {
                   .width('100%')
                   .padding({ top: 12, bottom: 12 })
                   .backgroundColor($r('app.color.card_bg'))
-                  .borderRadius(16)
+                  .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
                   .shadow({
                     radius: 4,
                     color: $r('app.color.shadow_color'),
@@ -9515,13 +9652,8 @@ struct Index {
                 .width('100%')
                 .padding({ left: 12, right: 12, top: 16, bottom: 16 })
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius(16)
-                .shadow({
-                  radius: 8,
-                  color: $r('app.color.shadow_color'),
-                  offsetX: 0,
-                  offsetY: 2
-                })
+                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                 .margin({ bottom: 16 })
 
                 // ===== 4. 设置列表 =====
@@ -9935,8 +10067,8 @@ struct Index {
                 .width('100%')
                 .padding({ left: 16, right: 16, top: 16, bottom: 16 })
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius(16)
-                .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                 .margin({ bottom: 16 })
 
                 // ===== 5. 底部版本信息 =====
@@ -9952,7 +10084,9 @@ struct Index {
                   .alignSelf(ItemAlign.Center)
               }
               .width('100%')
-              .padding({ bottom: 30 })
+              // 底部留白：避开悬浮页签栏（栏高 56 + 底边距 navBarVp + 呼吸空间），
+              // 版本信息自身另有 30vp 内边距，划到底部不被栏体遮挡
+              .padding({ bottom: this.navBarVp + 38 })
             }
             .width('100%')
             .layoutWeight(1)
@@ -9981,7 +10115,7 @@ struct Index {
       .barOverlap(!this.isWideScreen)
       .vertical(this.isWideScreen)
       .barFloatingStyle(this.getTabBarFloatingStyle())
-      .barHeight(this.isWideScreen ? '100%' : 50)
+      .barHeight(this.isWideScreen ? '100%' : 56)
       .animationDuration(AnimationConfig.DURATION)
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
       .barBackgroundColor(this.currentColorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK
@@ -9990,6 +10124,11 @@ struct Index {
       .onChange((index: number) => {
         hapticTick();
         this.currentTabIndex = index;
+        // 选中页签图标Q弹弹跳
+        this.tabIconPop = 1.25;
+        animateTo({ curve: MotionCurves.BOUNCY }, () => {
+          this.tabIconPop = 1;
+        });
         if (index === 1) {
           this.updateStatSummary();
           setTimeout(() => {
@@ -10009,6 +10148,8 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor($r('app.color.bg_main'))
+    // 全屏沉浸式：状态栏避让由各 Tab 顶部占位条内部消化，背景延伸到状态栏下；
+    // 底部悬浮页签栏抬到手势条上方（barBottomMargin = navBarVp），栏更高且不与小横杠重叠
 
       // 账本切换 / 编辑账单弹层宿主（同一节点链式绑定多个 bindSheet 时只有第一个生效，
       // 故各自挂到独立的零尺寸节点上）
@@ -10041,6 +10182,7 @@ struct Index {
     .width('100%')
     .height('100%')
   }
+
 }
 
 // CSV 字段转义：包含逗号/引号/换行时用双引号包裹

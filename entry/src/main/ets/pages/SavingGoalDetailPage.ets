@@ -2,8 +2,10 @@ import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import dataPreferences from '@ohos.data.preferences';
 import { hapticTick } from '../common/Haptics';
+import { HandIcon } from '../common/HandIcon';
 import { AnimationConfig, BillItem, DEFAULT_LEDGER_ID } from './Index';
 import { SavingGoal, GoalRecord, GoalDetailParams, SavingGoalDialog } from './WealthTab';
+import { MotionCurves } from '../common/Motion';
 import {
   markDailyTask,
   getChallengeTemplate,
@@ -249,6 +251,7 @@ struct SavingGoalDetailPage {
   @State savedPopScale: number = 1;
   @State celebrating: boolean = false;
   @State timelineReady: boolean = false;
+  @State pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
   private countTimer: number = -1;
   private context = this.getUIContext().getHostContext() as common.UIAbilityContext;
   private depositDialog: CustomDialogController | null = null;
@@ -449,7 +452,7 @@ struct SavingGoalDetailPage {
   celebrate(): void {
     hapticTick();
     this.celebrating = true;
-    promptAction.showToast({ message: '🎉 目标达成！这段攒钱旅程圆满了', duration: 2500 });
+    promptAction.showToast({ message: '目标达成！这段攒钱旅程圆满了', duration: 2500 });
     setTimeout(() => {
       this.celebrating = false;
     }, 3200);
@@ -597,6 +600,10 @@ struct SavingGoalDetailPage {
     controller.open();
   }
 
+  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
+  @StorageProp('statusBarVp') statusBarVp: number = 46;
+  @StorageProp('navBarVp') navBarVp: number = 28;
+
   build() {
     Row() {
     Column() {
@@ -606,6 +613,15 @@ struct SavingGoalDetailPage {
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .fontColor([$r('app.color.text_primary')])
+          .scale({ x: this.pressedChipKey === 'back' ? 0.8 : 1, y: this.pressedChipKey === 'back' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'back';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => {
             router.back();
           })
@@ -623,10 +639,19 @@ struct SavingGoalDetailPage {
           .width(20)
           .height(20)
           .fillColor(this.brandMain)
+          .scale({ x: this.pressedChipKey === 'edit' ? 0.8 : 1, y: this.pressedChipKey === 'edit' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'edit';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => { this.openEditDialog(); })
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 20, bottom: 16 })
+      .padding({ left: 20, right: 20, top: this.statusBarVp + 20, bottom: 16 })
 
       Divider()
         .color($r('app.color.border_color'))
@@ -671,12 +696,24 @@ struct SavingGoalDetailPage {
                     .fontSize(13)
                     .fontColor($r('app.color.text_secondary'))
                     .margin({ top: 4 })
-                  Text(this.isDone() ? '🎉 目标已达成，太棒了！' : `还差 ¥${this.remaining().toFixed(2)}`)
-                    .fontSize(13)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor(this.isDone() ?
-                    $r('app.color.income_gold') : this.brandMain)
+                  if (this.isDone()) {
+                    Row() {
+                      HandIcon({ name: 'party', iconSize: 14 })
+                      Text('目标已达成，太棒了！')
+                        .fontSize(13)
+                        .fontWeight(FontWeight.Medium)
+                        .fontColor($r('app.color.income_gold'))
+                        .margin({ left: 3 })
+                    }
+                    .alignItems(VerticalAlign.Center)
                     .margin({ top: 6 })
+                  } else {
+                    Text(`还差 ¥${this.remaining().toFixed(2)}`)
+                      .fontSize(13)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor(this.brandMain)
+                      .margin({ top: 6 })
+                  }
                   Text(this.deadlineText())
                     .fontSize(12)
                     .fontColor(this.deadlineColor())
@@ -693,33 +730,28 @@ struct SavingGoalDetailPage {
 
             // 达成庆祝彩带
             if (this.celebrating) {
-              Text('🎉')
-                .fontSize(26)
+              HandIcon({ name: 'party', iconSize: 26 })
                 .offset({ x: -120, y: -58 })
-              Text('✨')
-                .fontSize(22)
+              HandIcon({ name: 'sparkle', iconSize: 22 })
                 .offset({ x: 116, y: -52 })
-              Text('🎊')
-                .fontSize(24)
+              HandIcon({ name: 'confetti', iconSize: 24 })
                 .offset({ x: -108, y: 62 })
-              Text('💰')
-                .fontSize(20)
+              HandIcon({ name: 'moneybag', iconSize: 20 })
                 .offset({ x: 122, y: 58 })
             }
           }
           .width('100%')
           .padding(16)
           .backgroundColor($r('app.color.card_bg'))
-          .borderRadius(20)
-          .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+          .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
+          .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
           .margin({ top: 16 })
 
           // ===== 挑战进度卡（52周/30天挑战目标专属） =====
           if (this.challengeTemplate() !== null) {
             Column() {
               Row() {
-                Text(this.challengeTemplate()?.emoji ?? '🎯')
-                  .fontSize(18)
+                HandIcon({ name: this.challengeTemplate()?.emoji ?? 'target', iconSize: 18 })
                 Text(this.challengeTemplate()?.name ?? '存钱挑战')
                   .fontSize(15)
                   .fontWeight(FontWeight.Bold)
@@ -766,28 +798,38 @@ struct SavingGoalDetailPage {
 
               if (this.goalSaved >= getChallengePlannedTotal(
                 this.challengeTemplate() as ChallengeTemplate, this.challengePeriod())) {
-                Text('✅ 进度超前，太稳了！')
+                Text('✓ 进度超前，太稳了！')
                   .fontSize(12)
                   .fontWeight(FontWeight.Medium)
                   .fontColor($r('app.color.success_green'))
                   .margin({ top: 10 })
                   .alignSelf(ItemAlign.Start)
               } else {
-                Text(`⏳ 落后计划 ¥${(getChallengePlannedTotal(
-                  this.challengeTemplate() as ChallengeTemplate, this.challengePeriod()) -
-                  this.goalSaved).toFixed(0)}，慢慢追上来`)
-                  .fontSize(12)
-                  .fontColor($r('app.color.budget_orange'))
-                  .margin({ top: 10 })
-                  .alignSelf(ItemAlign.Start)
+                Row() {
+                  HandIcon({ name: 'hourglass', iconSize: 13 })
+                  Text(`落后计划 ¥${(getChallengePlannedTotal(
+                    this.challengeTemplate() as ChallengeTemplate, this.challengePeriod()) -
+                    this.goalSaved).toFixed(0)}，慢慢追上来`)
+                    .fontSize(12)
+                    .fontColor($r('app.color.budget_orange'))
+                    .margin({ left: 4 })
+                }
+                .alignItems(VerticalAlign.Center)
+                .margin({ top: 10 })
+                .alignSelf(ItemAlign.Start)
               }
 
               if (this.goalBillOnDeposit) {
-                Text('🧾 已开启：每笔存入将同步记一笔「存钱」支出账单')
-                  .fontSize(11)
-                  .fontColor($r('app.color.text_secondary'))
-                  .margin({ top: 8 })
-                  .alignSelf(ItemAlign.Start)
+                Row() {
+                  HandIcon({ name: 'receipt', iconSize: 12 })
+                  Text('已开启：每笔存入将同步记一笔「存钱」支出账单')
+                    .fontSize(11)
+                    .fontColor($r('app.color.text_secondary'))
+                    .margin({ left: 4 })
+                }
+                .alignItems(VerticalAlign.Center)
+                .margin({ top: 8 })
+                .alignSelf(ItemAlign.Start)
               }
 
               if (this.goalRemindChallenge) {
@@ -801,8 +843,8 @@ struct SavingGoalDetailPage {
             .width('100%')
             .padding(16)
             .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(20)
-            .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+            .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
+            .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
             .margin({ top: 12 })
           }
 
@@ -819,21 +861,42 @@ struct SavingGoalDetailPage {
             .justifyContent(FlexAlign.Center)
             .backgroundColor(this.brandMain)
             .borderRadius(23)
+            .scale({ x: this.pressedChipKey === 'deposit' ? 0.92 : 1, y: this.pressedChipKey === 'deposit' ? 0.92 : 1 })
+            .animation({ curve: MotionCurves.PRESS })
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.pressedChipKey = 'deposit';
+              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                this.pressedChipKey = '';
+              }
+            })
             .onClick(() => { this.openDepositDialog(); })
 
             Blank().width(12)
 
             Row() {
-              Text('📝 写日记')
+              HandIcon({ name: 'note', iconSize: 15 })
+              Text('写日记')
                 .fontSize(15)
                 .fontWeight(FontWeight.Bold)
                 .fontColor(this.brandMain)
+                .margin({ left: 4 })
             }
+            .alignItems(VerticalAlign.Center)
             .layoutWeight(1)
             .height(46)
             .justifyContent(FlexAlign.Center)
             .backgroundColor(this.brandTint)
             .borderRadius(23)
+            .scale({ x: this.pressedChipKey === 'diary' ? 0.92 : 1, y: this.pressedChipKey === 'diary' ? 0.92 : 1 })
+            .animation({ curve: MotionCurves.PRESS })
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.pressedChipKey = 'diary';
+              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                this.pressedChipKey = '';
+              }
+            })
             .onClick(() => { this.openDiaryDialog(); })
           }
           .width('100%')
@@ -841,10 +904,15 @@ struct SavingGoalDetailPage {
 
           // 非挑战目标也可提示：开启计入后每笔存入会自动记账（挑战目标在进度卡内已有说明）
           if (this.goalBillOnDeposit && this.challengeTemplate() === null) {
-            Text('🧾 已开启：每笔存入将同步记一笔「存钱」支出账单')
-              .fontSize(11)
-              .fontColor($r('app.color.text_secondary'))
-              .margin({ top: 8 })
+            Row() {
+              HandIcon({ name: 'receipt', iconSize: 12 })
+              Text('已开启：每笔存入将同步记一笔「存钱」支出账单')
+                .fontSize(11)
+                .fontColor($r('app.color.text_secondary'))
+                .margin({ left: 4 })
+            }
+            .alignItems(VerticalAlign.Center)
+            .margin({ top: 8 })
           }
 
           // ===== 攒钱旅程 =====
@@ -864,8 +932,7 @@ struct SavingGoalDetailPage {
           if (this.timelineReady) {
             if (this.records.length === 0) {
               Column() {
-                Text('🪙')
-                  .fontSize(30)
+                HandIcon({ name: 'coin', iconSize: 30 })
                   .margin({ bottom: 6 })
                 Text('旅程还没开始')
                   .fontSize(14)
@@ -879,8 +946,8 @@ struct SavingGoalDetailPage {
               .alignItems(HorizontalAlign.Center)
               .padding({ top: 26, bottom: 26 })
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(16)
-              .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+              .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
             } else {
               // 时间轴：存入金色节点，日记灰色节点；存入附带的日记与金额同卡展示
               Column() {
@@ -956,14 +1023,14 @@ struct SavingGoalDetailPage {
               .width('100%')
               .padding({ left: 14, right: 14, top: 10, bottom: 10 })
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(16)
-              .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+              .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
             }
           }
 
           Column()
             .width('100%')
-            .height(44)
+            .height(this.navBarVp + 44)
         }
         .width('100%')
         .padding({ left: 20, right: 20 })
@@ -985,4 +1052,5 @@ struct SavingGoalDetailPage {
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
   }
+
 }

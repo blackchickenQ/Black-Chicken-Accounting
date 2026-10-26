@@ -84,6 +84,21 @@ export const BRAND_THEMES: BrandThemePreset[] = [
     name: '葡萄紫',
     light: { main: '#9C6BF2', light: '#BC94FF', deep: '#8452E0', tint: '#F3EDFE' },
     dark: { main: '#B48CFF', light: '#7447C4', deep: '#5A36A0', tint: '#2A1D45' }
+  },
+  {
+    name: '汽水蓝',
+    light: { main: '#2EB8F0', light: '#6FD3FF', deep: '#0E9BD8', tint: '#E5F8FF' },
+    dark: { main: '#54C7F5', light: '#0B7FB0', deep: '#0A6288', tint: '#123A4D' }
+  },
+  {
+    name: '青柠苏打',
+    light: { main: '#84CC16', light: '#B5E85C', deep: '#65A30D', tint: '#F2FCE3' },
+    dark: { main: '#A3D94E', light: '#4E7A0B', deep: '#3C5F09', tint: '#1E2E10' }
+  },
+  {
+    name: '蜜桃气泡',
+    light: { main: '#FB7185', light: '#FDA4AF', deep: '#E11D48', tint: '#FFF1F2' },
+    dark: { main: '#FB8FA3', light: '#BE3D55', deep: '#8F2A3D', tint: '#3B1A20' }
   }
 ];
 

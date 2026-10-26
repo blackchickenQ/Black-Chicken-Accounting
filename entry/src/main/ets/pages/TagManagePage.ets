@@ -4,6 +4,7 @@ import { promptAction } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { AnimationConfig } from './Index';
+import { MotionCurves } from '../common/Motion';
 
 
 interface BillItem {
@@ -30,6 +31,7 @@ struct TagManagePage {
   @State tagList: TagItem[] = [];
   @State editTagName: string = '';
   @State editingTag: string = '';
+  @State pressedChipKey: string = '';
 
   async aboutToAppear() {
     await this.loadTags();
@@ -154,10 +156,29 @@ struct TagManagePage {
         }
       });
 
+      // 1. 同步 all_tags，避免记账页可选标签与实际脱节
+      const allTagsData = await prefs.get('all_tags', '[]') as string;
+      const allTags = JSON.parse(allTagsData) as string[];
+      const trimmedNew = newName.trim();
+      const updatedAllTags =
+        allTags.map(t => (t === oldName ? trimmedNew : t)).filter((t, i, arr) => arr.indexOf(t) === i);
+      await prefs.put('all_tags', JSON.stringify(updatedAllTags));
+
       if (needUpdate) {
         await prefs.put('bills_key', JSON.stringify(bills));
-        await prefs.flush();
       }
+      await prefs.flush();
+
+      // 2. 同步 AppStorage 中的 bills，让 Index 页面实时刷新
+      const appBills = AppStorage.get<BillItem[]>('bills') || [];
+      const updatedAppBills = appBills.map((bill: BillItem) => {
+        if (bill.tags && bill.tags.includes(oldName)) {
+          bill.tags = bill.tags.map(t => t === oldName ? trimmedNew : t);
+        }
+        return bill;
+      });
+      AppStorage.setOrCreate('bills', updatedAppBills);
+      AppStorage.setOrCreate('shouldRefreshBills', Date.now());
 
       // ✅ 保存成功后，用 animateTo 退出编辑模式
       animateTo({ curve: AnimationConfig.SPRING_SOFT }, () => {
@@ -237,6 +258,10 @@ struct TagManagePage {
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
   @StorageProp('isWideScreen') isWideScreen: boolean = false;
 
+  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
+  @StorageProp('statusBarVp') statusBarVp: number = 46;
+  @StorageProp('navBarVp') navBarVp: number = 28;
+
   build() {
     Row() {
     Column() {
@@ -246,6 +271,15 @@ struct TagManagePage {
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .fontColor([$r('app.color.text_primary')])
+          .scale({ x: this.pressedChipKey === 'back' ? 0.8 : 1, y: this.pressedChipKey === 'back' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'back';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => {
             router.back();
           })
@@ -261,6 +295,15 @@ struct TagManagePage {
           Text('清空')
             .fontSize(16)
             .fontColor($r('app.color.expense_red'))
+            .scale({ x: this.pressedChipKey === 'clear' ? 0.85 : 1, y: this.pressedChipKey === 'clear' ? 0.85 : 1 })
+            .animation({ curve: MotionCurves.PRESS })
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.pressedChipKey = 'clear';
+              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                this.pressedChipKey = '';
+              }
+            })
             .onClick(() => {
               this.clearAllTags();
             })
@@ -271,7 +314,7 @@ struct TagManagePage {
         }
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 20, bottom: 16 })
+      .padding({ left: 20, right: 20, top: this.statusBarVp + 20, bottom: 16 })
 
       Divider()
         .color($r('app.color.border_color'))
@@ -300,7 +343,7 @@ struct TagManagePage {
           .animation({ curve: AnimationConfig.SPRING_SOFT }))
       } else {
         List() {
-          ForEach(this.tagList, (item: TagItem) => {
+          ForEach(this.tagList, (item: TagItem, index: number) => {
             ListItem() {
               Row() {
                 if (this.editingTag === item.name) {
@@ -395,8 +438,22 @@ struct TagManagePage {
               .transition(TransitionEffect.OPACITY
                 .combine(TransitionEffect.scale({ x: 0.9, y: 0.9 }))
                 .animation({ curve: AnimationConfig.SPRING }))
+              .scale({ x: this.pressedChipKey === 'item_' + index ? 0.96 : 1, y: this.pressedChipKey === 'item_' + index ? 0.96 : 1 })
+              .animation({ curve: MotionCurves.PRESS })
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  this.pressedChipKey = 'item_' + index;
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  this.pressedChipKey = '';
+                }
+              })
             }
           }, (item: TagItem) => item.name)
+
+          // 尾部占位：列表可滚入底部手势条区域，最后一项仍可完整停在手势条上方
+          ListItem() {
+            Column().height(this.navBarVp + 8)
+          }
         }
         .width('100%')
         .layoutWeight(1)
@@ -414,4 +471,5 @@ struct TagManagePage {
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
   }
+
 }

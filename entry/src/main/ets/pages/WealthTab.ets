@@ -3,7 +3,9 @@ import { router } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { AnimationConfig, BillItem, DEFAULT_LEDGER_ID, LedgerItem } from './Index';
+import { MotionCurves } from '../common/Motion';
 import { ASSET_PALETTE } from '../common/AppTheme';
+import { HandIcon } from '../common/HandIcon';
 import {
   CHALLENGE_TEMPLATES,
   ChallengeTemplate,
@@ -545,12 +547,17 @@ struct ChallengeStartDialog {
 
   build() {
     Column() {
-      Text('🎯 发起存钱挑战')
-        .fontSize(20)
-        .fontWeight(FontWeight.Bold)
-        .fontColor($r('app.color.text_primary'))
-        .alignSelf(ItemAlign.Start)
-        .margin({ bottom: 4 })
+      Row() {
+        HandIcon({ name: 'target', iconSize: 20 })
+        Text('发起存钱挑战')
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+          .margin({ left: 6 })
+      }
+      .alignItems(VerticalAlign.Center)
+      .alignSelf(ItemAlign.Start)
+      .margin({ bottom: 4 })
 
       Text('阶梯式攒钱，每期比上一期多存一点，不知不觉攒下一大笔')
         .fontSize(12)
@@ -704,12 +711,17 @@ struct WishAddDialog {
 
   build() {
     Column() {
-      Text('🌟 许个愿')
-        .fontSize(20)
-        .fontWeight(FontWeight.Bold)
-        .fontColor($r('app.color.text_primary'))
-        .alignSelf(ItemAlign.Start)
-        .margin({ bottom: 4 })
+      Row() {
+        HandIcon({ name: 'star_glow', iconSize: 20 })
+        Text('许个愿')
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+          .margin({ left: 6 })
+      }
+      .alignItems(VerticalAlign.Center)
+      .alignSelf(ItemAlign.Start)
+      .margin({ bottom: 4 })
 
       Text(`先冷静 ${WISH_COOLING_DAYS} 天，冷静期满后还想买再出手`)
         .fontSize(12)
@@ -1020,6 +1032,10 @@ struct FinanceProfileDialog {
 @Component
 export struct WealthTab {
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
+  // 沉浸式布局：状态栏避让高度（顶部占位条内部消化，背景延伸到状态栏下）
+  @StorageProp('statusBarVp') statusBarVp: number = 46;
+  // 底部手势条避让高度：滚动内容尾部留白据此避开悬浮页签栏
+  @StorageProp('navBarVp') navBarVp: number = 28;
   // 总资产变化（记账/资产明细页改动）时触发资金账户刷新
   @Prop @Watch('onExternalRefresh') totalAsset: number = 0;
   // 资金账户在财富页被增删改后，通知首页刷新总资产
@@ -1033,6 +1049,8 @@ export struct WealthTab {
   @State fundAccounts: FundAccount[] = [];
   @State creditAccounts: CreditAccount[] = [];
   @State savingGoals: SavingGoal[] = [];
+  // 按压中的胶囊/按钮 key（Q弹缩放反馈）
+  @State pressedChipKey: string = '';
   @State wishes: WishItem[] = [];
   // 小眼睛：一键隐藏/显示资产金额（与资产明细页风格一致）
   @State amountVisible: boolean = true;
@@ -1223,7 +1241,7 @@ export struct WealthTab {
           this.saveSavingGoals();
           controller.close();
           promptAction.showToast({
-            message: billOnDeposit ? `🎯 挑战开始！每笔存入将同步记账` : `🎯 挑战开始！${tpl.desc}`,
+            message: billOnDeposit ? `挑战开始！每笔存入将同步记账` : `挑战开始！${tpl.desc}`,
             duration: 2500
           });
         },
@@ -1988,13 +2006,13 @@ export struct WealthTab {
   }
 
   // ---------- 模式切换 ----------
-switchWealthMode(mode: string): void {
-  if (mode === this.wealthMode) return;
-  // 用短促的摩擦曲线代替弹簧：切换内容为大列表整树重建，弹簧+缩放逐帧栅格化开销大易掉帧
-  animateTo({ duration: 220, curve: Curve.Friction }, () => {
-    this.wealthMode = mode;
-  });
-}
+  switchWealthMode(mode: string): void {
+    if (mode === this.wealthMode) return;
+    // 滑块用 Q 弹弹簧曲线；内容横滑过渡在各自 transition 上用柔和弹簧
+    animateTo({ curve: AnimationConfig.SPRING }, () => {
+      this.wealthMode = mode;
+    });
+  }
 
   // ---------- 资金账户：增删改 ----------
   openFundAddDialog(): void {
@@ -2254,6 +2272,15 @@ switchWealthMode(mode: string): void {
       .padding({ left: 10, right: 10, top: 5, bottom: 5 })
       .backgroundColor($r('app.color.category_btn_bg'))
       .borderRadius(8)
+      .scale({ x: this.pressedChipKey === 'add_chip' ? 0.88 : 1, y: this.pressedChipKey === 'add_chip' ? 0.88 : 1 })
+      .animation({ curve: MotionCurves.PRESS })
+      .onTouch((event: TouchEvent) => {
+        if (event.type === TouchType.Down) {
+          this.pressedChipKey = 'add_chip';
+        } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+          this.pressedChipKey = '';
+        }
+      })
       .onClick(() => { onTap(); })
   }
 
@@ -2299,6 +2326,15 @@ switchWealthMode(mode: string): void {
       .padding({ left: 12, right: 12, top: 6, bottom: 6 })
       .backgroundColor(this.selectedLedgerId === id ? this.brandMain : $r('app.color.category_btn_bg'))
       .borderRadius(14)
+      .scale({ x: this.pressedChipKey === ('ledger_' + id) ? 0.88 : 1, y: this.pressedChipKey === ('ledger_' + id) ? 0.88 : 1 })
+      .animation({ curve: MotionCurves.PRESS })
+      .onTouch((event: TouchEvent) => {
+        if (event.type === TouchType.Down) {
+          this.pressedChipKey = 'ledger_' + id;
+        } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+          this.pressedChipKey = '';
+        }
+      })
       .onClick(() => { this.selectLedger(id); })
   }
 
@@ -2435,8 +2471,8 @@ switchWealthMode(mode: string): void {
     .width('100%')
     .padding(16)
     .backgroundColor($r('app.color.card_bg'))
-    .borderRadius(16)
-    .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+    .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+    .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
     .margin({ bottom: 12 })
   }
 
@@ -2512,8 +2548,8 @@ switchWealthMode(mode: string): void {
       .width('100%')
       .padding(16)
       .backgroundColor($r('app.color.card_bg'))
-      .borderRadius(16)
-      .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+      .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+      .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
       .margin({ bottom: 12 })
     }
   }
@@ -2564,18 +2600,26 @@ switchWealthMode(mode: string): void {
       .width('100%')
       .padding(16)
       .backgroundColor($r('app.color.card_bg'))
-      .borderRadius(16)
-      .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+      .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+      .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
       .margin({ bottom: 12 })
     }
   }
 
+  @Builder
+  SquiggleDeco() {
+    Image($r('app.media.hd_underline'))
+      .width(52)
+      .height(8)
+      .objectFit(ImageFit.Fill)
+  }
+
   build() {
     Column() {
-      // 状态栏占位
+      // 状态栏占位：高度含状态栏避让，背景延伸到状态栏下（沉浸式）
       Row()
         .width('100%')
-        .height(10)
+        .height(this.statusBarVp + 10)
         .backgroundColor($r('app.color.bg_main'))
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
         .flexShrink(0)
@@ -2609,6 +2653,15 @@ switchWealthMode(mode: string): void {
               .width(56)
               .height(36)
               .justifyContent(FlexAlign.Center)
+              .scale({ x: this.pressedChipKey === 'mode_asset' ? 0.9 : 1, y: this.pressedChipKey === 'mode_asset' ? 0.9 : 1 })
+              .animation({ curve: MotionCurves.PRESS })
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  this.pressedChipKey = 'mode_asset';
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  this.pressedChipKey = '';
+                }
+              })
               .onClick(() => { this.switchWealthMode('asset'); })
 
               Row() {
@@ -2621,6 +2674,15 @@ switchWealthMode(mode: string): void {
               .width(56)
               .height(36)
               .justifyContent(FlexAlign.Center)
+              .scale({ x: this.pressedChipKey === 'mode_saving' ? 0.9 : 1, y: this.pressedChipKey === 'mode_saving' ? 0.9 : 1 })
+              .animation({ curve: MotionCurves.PRESS })
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  this.pressedChipKey = 'mode_saving';
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  this.pressedChipKey = '';
+                }
+              })
               .onClick(() => { this.switchWealthMode('saving'); })
             }
           }
@@ -2701,8 +2763,8 @@ switchWealthMode(mode: string): void {
               .width('100%')
               .padding(16)
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(16)
-              .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+              .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
               .margin({ bottom: 12 })
 
               // 卡片 1.5：财务健康度
@@ -2768,8 +2830,8 @@ switchWealthMode(mode: string): void {
               .width('100%')
               .padding(16)
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(16)
-              .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+              .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
               .margin({ bottom: 12 })
 
               // 卡片 2.5：资产分布
@@ -2858,16 +2920,18 @@ switchWealthMode(mode: string): void {
               .width('100%')
               .padding(16)
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(16)
-              .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+              .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
               .margin({ bottom: 12 })
 
               // 卡片 3.5：净资产趋势
               this.NetAssetTrendCard()
             }
             .width('100%')
-            .transition(TransitionEffect.OPACITY
-              .animation({ duration: 200, curve: Curve.EaseOut }))
+            // 左侧 Tab 内容：从左侧滑入/滑出（跟随滑块方向，柔和弹簧）
+            .transition(TransitionEffect.translate({ x: -48 })
+              .combine(TransitionEffect.OPACITY)
+              .animation({ curve: AnimationConfig.SPRING_SOFT }))
           } else {
             // ===== 存钱模式 =====
             Column() {
@@ -2877,16 +2941,31 @@ switchWealthMode(mode: string): void {
                   .fontSize(17)
                   .fontWeight(FontWeight.Medium)
                   .fontColor($r('app.color.text_primary'))
+                  .overlay(this.SquiggleDeco(), { align: Alignment.Bottom, offset: { x: 0, y: 5 } })
                 Blank()
-                Text('🎯 发起挑战')
-                  .fontSize(13)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor($r('app.color.income_gold'))
-                  .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-                  .backgroundColor($r('app.color.category_btn_bg'))
-                  .borderRadius(8)
-                  .margin({ right: 8 })
-                  .onClick(() => { this.openChallengeDialog(); })
+                Row() {
+                  HandIcon({ name: 'target', iconSize: 13 })
+                  Text('发起挑战')
+                    .fontSize(13)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor($r('app.color.income_gold'))
+                    .margin({ left: 3 })
+                }
+                .alignItems(VerticalAlign.Center)
+                .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+                .backgroundColor($r('app.color.category_btn_bg'))
+                .borderRadius(8)
+                .margin({ right: 8 })
+                .scale({ x: this.pressedChipKey === 'challenge' ? 0.9 : 1, y: this.pressedChipKey === 'challenge' ? 0.9 : 1 })
+                .animation({ curve: MotionCurves.PRESS })
+                .onTouch((event: TouchEvent) => {
+                  if (event.type === TouchType.Down) {
+                    this.pressedChipKey = 'challenge';
+                  } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                    this.pressedChipKey = '';
+                  }
+                })
+                .onClick(() => { this.openChallengeDialog(); })
                 this.AddChip(() => { this.openGoalAddDialog(); })
               }
               .width('100%')
@@ -2906,8 +2985,8 @@ switchWealthMode(mode: string): void {
                 .alignItems(HorizontalAlign.Center)
                 .padding({ top: 40, bottom: 40 })
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius(16)
-                .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
               } else {
                 // 每个存钱目标一张独立小卡片：点击卡片进入目标详情页（旅程/存入/日记）
                 ForEach(this.savingGoals, (item: SavingGoal, index: number) => {
@@ -2917,15 +2996,20 @@ switchWealthMode(mode: string): void {
                         .fontSize(16)
                         .fontWeight(FontWeight.Medium)
                         .fontColor($r('app.color.text_primary'))
-                      if (item.challengeType) {
-                        Text(getChallengeTemplate(item.challengeType) ? '🎯 挑战' : '')
-                          .fontSize(10)
-                          .fontWeight(FontWeight.Medium)
-                          .fontColor($r('app.color.income_gold'))
-                          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                          .backgroundColor($r('app.color.category_btn_bg'))
-                          .borderRadius(8)
-                          .margin({ left: 6 })
+                      if (item.challengeType && getChallengeTemplate(item.challengeType)) {
+                        Row() {
+                          HandIcon({ name: 'target', iconSize: 11 })
+                          Text('挑战')
+                            .fontSize(10)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor($r('app.color.income_gold'))
+                            .margin({ left: 2 })
+                        }
+                        .alignItems(VerticalAlign.Center)
+                        .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                        .backgroundColor($r('app.color.category_btn_bg'))
+                        .borderRadius(8)
+                        .margin({ left: 6 })
                       }
                       Blank()
                       Text(this.getGoalPercent(item.saved, item.target) + '%')
@@ -2991,8 +3075,8 @@ switchWealthMode(mode: string): void {
                   .width('100%')
                   .padding(16)
                   .backgroundColor($r('app.color.card_bg'))
-                  .borderRadius(16)
-                  .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+                  .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                  .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                   .margin({ bottom: 12 })
                   .onClick(() => { this.openGoalDetail(item); })
                 }, (item: SavingGoal) =>
@@ -3029,14 +3113,13 @@ switchWealthMode(mode: string): void {
                 .alignItems(HorizontalAlign.Center)
                 .padding({ top: 26, bottom: 26 })
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius(16)
-                .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
               } else {
                 ForEach(this.wishes, (item: WishItem, index: number) => {
                   Column() {
                     Row() {
-                      Text(item.status === 'cooling' ? '🧊' : '💗')
-                        .fontSize(20)
+                      HandIcon({ name: item.status === 'cooling' ? 'ice' : 'heart', iconSize: 20 })
                       Column() {
                         Text(item.name)
                           .fontSize(15)
@@ -3091,6 +3174,15 @@ switchWealthMode(mode: string): void {
                             .borderRadius(15)
                             .padding({ left: 16, right: 16, top: 6, bottom: 6 })
                             .margin({ top: 10 })
+                            .scale({ x: this.pressedChipKey === ('decide_' + index) ? 0.9 : 1, y: this.pressedChipKey === ('decide_' + index) ? 0.9 : 1 })
+                            .animation({ curve: MotionCurves.PRESS })
+                            .onTouch((event: TouchEvent) => {
+                              if (event.type === TouchType.Down) {
+                                this.pressedChipKey = 'decide_' + index;
+                              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                                this.pressedChipKey = '';
+                              }
+                            })
                             .onClick(() => { this.onWishDecide(index); })
                         }
                         .width('100%')
@@ -3098,20 +3190,38 @@ switchWealthMode(mode: string): void {
                     } else {
                       Row() {
                         Blank()
-                        Text('转存钱目标')
-                          .fontSize(13)
-                          .fontWeight(FontWeight.Medium)
-                          .fontColor($r('app.color.income_gold'))
-                          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-                          .backgroundColor($r('app.color.category_btn_bg'))
-                          .borderRadius(15)
-                          .onClick(() => { this.dropWish(index, true); })
-                        Text('移除')
-                          .fontSize(13)
-                          .fontColor($r('app.color.text_secondary'))
-                          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-                          .margin({ left: 8 })
-                          .onClick(() => { this.dropWish(index, false); })
+                         Text('转存钱目标')
+                           .fontSize(13)
+                           .fontWeight(FontWeight.Medium)
+                           .fontColor($r('app.color.income_gold'))
+                           .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+                           .backgroundColor($r('app.color.category_btn_bg'))
+                           .borderRadius(15)
+                           .scale({ x: this.pressedChipKey === ('convert_' + index) ? 0.9 : 1, y: this.pressedChipKey === ('convert_' + index) ? 0.9 : 1 })
+                           .animation({ curve: MotionCurves.PRESS })
+                           .onTouch((event: TouchEvent) => {
+                             if (event.type === TouchType.Down) {
+                               this.pressedChipKey = 'convert_' + index;
+                             } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                               this.pressedChipKey = '';
+                             }
+                           })
+                           .onClick(() => { this.dropWish(index, true); })
+                         Text('移除')
+                           .fontSize(13)
+                           .fontColor($r('app.color.text_secondary'))
+                           .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+                           .margin({ left: 8 })
+                           .scale({ x: this.pressedChipKey === ('remove_' + index) ? 0.9 : 1, y: this.pressedChipKey === ('remove_' + index) ? 0.9 : 1 })
+                           .animation({ curve: MotionCurves.PRESS })
+                           .onTouch((event: TouchEvent) => {
+                             if (event.type === TouchType.Down) {
+                               this.pressedChipKey = 'remove_' + index;
+                             } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                               this.pressedChipKey = '';
+                             }
+                           })
+                           .onClick(() => { this.dropWish(index, false); })
                       }
                       .width('100%')
                       .margin({ top: 10 })
@@ -3120,8 +3230,8 @@ switchWealthMode(mode: string): void {
                   .width('100%')
                   .padding(16)
                   .backgroundColor($r('app.color.card_bg'))
-                  .borderRadius(16)
-                  .shadow({ radius: 8, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
+                  .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                  .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                   .margin({ bottom: 12 })
                   .onClick(() => {
                     if (item.status === 'cooling' && wishCoolingRemain(item) === 0) {
@@ -3133,13 +3243,16 @@ switchWealthMode(mode: string): void {
               }
             }
             .width('100%')
-            .transition(TransitionEffect.OPACITY
-              .animation({ duration: 200, curve: Curve.EaseOut }))
+            // 右侧 Tab 内容：从右侧滑入/滑出（跟随滑块方向，柔和弹簧）
+            .transition(TransitionEffect.translate({ x: 48 })
+              .combine(TransitionEffect.OPACITY)
+              .animation({ curve: AnimationConfig.SPRING_SOFT }))
           }
 
+          // 尾部占位：避开悬浮页签栏（栏高 56 + 底边距 navBarVp + 呼吸 12），划到底部内容不被栏体遮挡
           Column()
             .width('100%')
-            .height(30)
+            .height(this.navBarVp + 68)
         }
         .width('100%')
         .padding({ bottom: 0 })

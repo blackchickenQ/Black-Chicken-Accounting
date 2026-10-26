@@ -10,6 +10,7 @@ import {
   CATEGORIES,
   AnimationConfig
 } from './Index';
+import { MotionCurves } from '../common/Motion';
 
 const WEEK_LABELS: string[] = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const FREQ_LABELS: string[] = ['每周', '每月', '每年'];
@@ -412,6 +413,7 @@ struct RecurringManagePage {
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @State rules: RecurringBill[] = [];
   @State ledgers: LedgerItem[] = [];
+  @State pressedChipKey: string = '';
   private editDialogController: CustomDialogController | null = null;
 
   async aboutToAppear() {
@@ -567,6 +569,10 @@ struct RecurringManagePage {
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
   @StorageProp('isWideScreen') isWideScreen: boolean = false;
 
+  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
+  @StorageProp('statusBarVp') statusBarVp: number = 46;
+  @StorageProp('navBarVp') navBarVp: number = 28;
+
   build() {
     Row() {
     Column() {
@@ -576,6 +582,15 @@ struct RecurringManagePage {
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .fontColor([$r('app.color.text_primary')])
+          .scale({ x: this.pressedChipKey === 'back' ? 0.8 : 1, y: this.pressedChipKey === 'back' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'back';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => {
             router.back();
           })
@@ -590,10 +605,19 @@ struct RecurringManagePage {
         SymbolGlyph($r('sys.symbol.plus'))
           .fontSize(24)
           .fontColor([this.brandMain])
+          .scale({ x: this.pressedChipKey === 'add' ? 0.8 : 1, y: this.pressedChipKey === 'add' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'add';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => { this.openCreateDialog(); })
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 20, bottom: 16 })
+      .padding({ left: 20, right: 20, top: this.statusBarVp + 20, bottom: 16 })
 
       Divider()
         .color($r('app.color.border_color'))
@@ -620,7 +644,7 @@ struct RecurringManagePage {
         .justifyContent(FlexAlign.Center)
       } else {
         List() {
-          ForEach(this.rules, (item: RecurringBill) => {
+          ForEach(this.rules, (item: RecurringBill, index: number) => {
             ListItem() {
               Column() {
                 Row() {
@@ -693,6 +717,15 @@ struct RecurringManagePage {
               .transition(TransitionEffect.OPACITY
                 .combine(TransitionEffect.scale({ x: 0.9, y: 0.9 }))
                 .animation({ curve: AnimationConfig.SPRING }))
+              .scale({ x: this.pressedChipKey === 'item_' + index ? 0.96 : 1, y: this.pressedChipKey === 'item_' + index ? 0.96 : 1 })
+              .animation({ curve: MotionCurves.PRESS })
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  this.pressedChipKey = 'item_' + index;
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  this.pressedChipKey = '';
+                }
+              })
             }
           }, (item: RecurringBill) => item.id.toString() + item.name + (item.enabled ? '1' : '0'))
         }
@@ -711,7 +744,16 @@ struct RecurringManagePage {
         .width('90%')
         .fontSize(16)
         .fontWeight(FontWeight.Medium)
-        .margin({ bottom: 20 })
+        .margin({ bottom: this.navBarVp + 20 })
+        .scale({ x: this.pressedChipKey === 'create' ? 0.94 : 1, y: this.pressedChipKey === 'create' ? 0.94 : 1 })
+        .animation({ curve: MotionCurves.PRESS })
+        .onTouch((event: TouchEvent) => {
+          if (event.type === TouchType.Down) {
+            this.pressedChipKey = 'create';
+          } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+            this.pressedChipKey = '';
+          }
+        })
         .onClick(() => { this.openCreateDialog(); })
     }
     .width('100%')
@@ -725,4 +767,5 @@ struct RecurringManagePage {
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
   }
+
 }

@@ -4,6 +4,7 @@ import { promptAction } from '@kit.ArkUI';
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { LedgerItem, BillItem, DEFAULT_LEDGER_ID, getCategoryColor, AnimationConfig } from './Index';
+import { MotionCurves } from '../common/Motion';
 
 // 路由参数：目标账本 id
 export interface CategoryManageParams {
@@ -21,6 +22,7 @@ struct CategoryManagePage {
   @State newCategoryName: string = '';
   @State editingCategory: string = '';
   @State editCategoryName: string = '';
+  @State pressedChipKey: string = '';
 
   async aboutToAppear() {
     const params = router.getParams() as CategoryManageParams;
@@ -205,6 +207,10 @@ struct CategoryManagePage {
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
   @StorageProp('isWideScreen') isWideScreen: boolean = false;
 
+  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
+  @StorageProp('statusBarVp') statusBarVp: number = 46;
+  @StorageProp('navBarVp') navBarVp: number = 28;
+
   build() {
     Row() {
     Column() {
@@ -214,6 +220,15 @@ struct CategoryManagePage {
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .fontColor([$r('app.color.text_primary')])
+          .scale({ x: this.pressedChipKey === 'back' ? 0.8 : 1, y: this.pressedChipKey === 'back' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'back';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => {
             router.back();
           })
@@ -235,7 +250,7 @@ struct CategoryManagePage {
         .layoutWeight(1)
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 20, bottom: 16 })
+      .padding({ left: 20, right: 20, top: this.statusBarVp + 20, bottom: 16 })
 
       Divider()
         .color($r('app.color.border_color'))
@@ -270,7 +285,7 @@ struct CategoryManagePage {
 
       // 分类列表
       List() {
-        ForEach(this.categories, (cat: string) => {
+        ForEach(this.categories, (cat: string, index: number) => {
           ListItem() {
             Row() {
               if (this.editingCategory === cat) {
@@ -363,8 +378,22 @@ struct CategoryManagePage {
             .transition(TransitionEffect.OPACITY
               .combine(TransitionEffect.scale({ x: 0.9, y: 0.9 }))
               .animation({ curve: AnimationConfig.SPRING }))
+            .scale({ x: this.pressedChipKey === 'item_' + index ? 0.96 : 1, y: this.pressedChipKey === 'item_' + index ? 0.96 : 1 })
+            .animation({ curve: MotionCurves.PRESS })
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.pressedChipKey = 'item_' + index;
+              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                this.pressedChipKey = '';
+              }
+            })
           }
         }, (cat: string) => cat + this.editingCategory)
+
+        // 尾部占位：列表可滚入底部手势条区域，最后一项仍可完整停在手势条上方
+        ListItem() {
+          Column().height(this.navBarVp + 8)
+        }
       }
       .width('100%')
       .layoutWeight(1)
@@ -382,4 +411,5 @@ struct CategoryManagePage {
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
   }
+
 }

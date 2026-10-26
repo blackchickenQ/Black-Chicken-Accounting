@@ -2,7 +2,7 @@
   "app": {
     "bundleName": "com.bcq.myapplication",
     "vendor": "example",
-    "versionCode": 1000006,
+    "versionCode": 1000007,
     "versionName": "1.5.0",
     "buildVersion": "1",
     "icon": "$media:app_icon",

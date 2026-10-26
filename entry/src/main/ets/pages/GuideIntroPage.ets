@@ -2,6 +2,7 @@ import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { hapticTick } from '../common/Haptics';
 import { AnimationConfig } from './Index';
+import { MotionCurves } from '../common/Motion';
 import {
   isGuideIntroDone,
   setGuideIntroDone,
@@ -81,6 +82,7 @@ struct GuideIntroPage {
   @State imageBreath: number = 1;
   @State nextBtnScale: number = 1;
   @State skipBtnScale: number = 1;
+  @State pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
 
   aboutToAppear(): void {
     // 插图呼吸：轻微缩放往复，让页面有生命感
@@ -130,6 +132,10 @@ struct GuideIntroPage {
     }
   }
 
+  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
+  @StorageProp('statusBarVp') statusBarVp: number = 46;
+  @StorageProp('navBarVp') navBarVp: number = 28;
+
   build() {
     Column() {
       // 顶部品牌行：应用图标 + 名称
@@ -146,7 +152,7 @@ struct GuideIntroPage {
           .margin({ left: 8 })
       }
       .alignItems(VerticalAlign.Center)
-      .margin({ top: 18, bottom: 6 })
+      .margin({ top: this.statusBarVp + 18, bottom: 6 })
 
       // 内容区：键控切换（curPage 变化 → 旧页退场、新页弹性入场），支持左右滑动
       Stack() {
@@ -295,7 +301,7 @@ struct GuideIntroPage {
           })
       }
       .width('100%')
-      .padding({ bottom: 30 })
+      .padding({ bottom: this.navBarVp + 30 })
     }
     .width('100%')
     .height('100%')
@@ -303,4 +309,5 @@ struct GuideIntroPage {
     .backgroundColor($r('app.color.bg_main'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
   }
+
 }

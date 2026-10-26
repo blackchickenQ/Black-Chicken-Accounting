@@ -1,4 +1,5 @@
 import { BillItem, AnimationConfig, Padding } from './Index';
+import { MotionCurves } from '../common/Motion';
 
 
 interface CalendarDay {
@@ -33,6 +34,9 @@ export struct CalendarTab {
 
   // 按压的日期格索引
   @State pressedDayIdx: number = -1;
+
+  // 按压中的导航/药丸 key（Q弹缩放反馈）
+  @State pressedPillKey: string = '';
 
   @State touchStartY: number = 0;
 
@@ -383,6 +387,15 @@ export struct CalendarTab {
           SymbolGlyph($r('sys.symbol.chevron_left'))
             .fontSize(22)
             .fontColor([this.brandMain])
+            .scale({ x: this.pressedPillKey === 'prev' ? 0.8 : 1, y: this.pressedPillKey === 'prev' ? 0.8 : 1 })
+            .animation({ curve: MotionCurves.PRESS })
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.pressedPillKey = 'prev';
+              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                this.pressedPillKey = '';
+              }
+            })
             .onClick(() => this.prevMonth())
             .padding({ left: 8, right: 8, top: 9, bottom: 9 })
 
@@ -396,6 +409,15 @@ export struct CalendarTab {
           SymbolGlyph($r('sys.symbol.chevron_right'))
             .fontSize(22)
             .fontColor([this.brandMain])
+            .scale({ x: this.pressedPillKey === 'next' ? 0.8 : 1, y: this.pressedPillKey === 'next' ? 0.8 : 1 })
+            .animation({ curve: MotionCurves.PRESS })
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.pressedPillKey = 'next';
+              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                this.pressedPillKey = '';
+              }
+            })
             .onClick(() => this.nextMonth())
             .padding({ left: 8, right: 14, top: 9, bottom: 9 })
 
@@ -409,6 +431,15 @@ export struct CalendarTab {
               .borderRadius(8)
               .padding({ left: 10, right: 10, top: 5, bottom: 5 })
               .margin({ left: 14 })
+              .scale({ x: this.pressedPillKey === 'today' ? 0.88 : 1, y: this.pressedPillKey === 'today' ? 0.88 : 1 })
+              .animation({ curve: MotionCurves.PRESS })
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  this.pressedPillKey = 'today';
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  this.pressedPillKey = '';
+                }
+              })
               .onClick(() => this.goToday())
           }
         }
@@ -533,6 +564,15 @@ export struct CalendarTab {
             .backgroundColor($r('app.color.category_btn_bg'))
             .borderRadius(8)
             .margin({ left: 8 })
+            .scale({ x: this.pressedPillKey === 'expand' ? 0.88 : 1, y: this.pressedPillKey === 'expand' ? 0.88 : 1 })
+            .animation({ curve: MotionCurves.PRESS })
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.pressedPillKey = 'expand';
+              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                this.pressedPillKey = '';
+              }
+            })
             .onClick(() => { this.openBillPanel(); })
         }
         .width('100%')
@@ -602,6 +642,15 @@ export struct CalendarTab {
             .backgroundColor($r('app.color.category_btn_bg'))
             .borderRadius(8)
             .margin({ left: 8 })
+            .scale({ x: this.pressedPillKey === 'collapse' ? 0.88 : 1, y: this.pressedPillKey === 'collapse' ? 0.88 : 1 })
+            .animation({ curve: MotionCurves.PRESS })
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.pressedPillKey = 'collapse';
+              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                this.pressedPillKey = '';
+              }
+            })
             .onClick(() => { this.closeBillPanel(); })
         }
         .width('100%')

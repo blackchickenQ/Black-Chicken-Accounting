@@ -98,6 +98,8 @@
     { "name": "chart_text", "value": "#666666" },
     { "name": "chart_text_light", "value": "#999999" },
     { "name": "shadow_color", "value": "#142E4D8C" },
-    { "name": "glass_bg", "value": "#E6F6F7FB" }
+    { "name": "glass_bg", "value": "#E6F6F7FB" },
+    { "name": "ink_line", "value": "#1A1C2B" },
+    { "name": "ink_shadow", "value": "#2E1A1C2B" }
   ]
 }

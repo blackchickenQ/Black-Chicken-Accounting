@@ -3,6 +3,7 @@
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { getCategoryColor, AnimationConfig } from './Index';
+import { MotionCurves } from '../common/Motion';
 
 interface ReportBill {
   id: number;
@@ -58,6 +59,8 @@ struct WeeklyReportPage {
   // 周切换动画状态：内容横向偏移与透明度
   @State contentShiftX: number = 40;
   @State contentAlpha: number = 0;
+  // 按压回弹：当前按下目标的 key
+  @State pressedChipKey: string = '';
   private weekSwitching: boolean = false;
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
   @StorageProp('isWideScreen') isWideScreen: boolean = false;
@@ -357,6 +360,10 @@ struct WeeklyReportPage {
     .alignItems(HorizontalAlign.Center)
   }
 
+  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
+  @StorageProp('statusBarVp') statusBarVp: number = 46;
+  @StorageProp('navBarVp') navBarVp: number = 28;
+
   build() {
     Row() {
     Column() {
@@ -365,6 +372,15 @@ struct WeeklyReportPage {
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .fontColor([$r('app.color.text_primary')])
+          .scale({ x: this.pressedChipKey === 'back' ? 0.8 : 1, y: this.pressedChipKey === 'back' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'back';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => {
             this.getUIContext().getRouter().back();
           })
@@ -380,12 +396,21 @@ struct WeeklyReportPage {
           .width(40)
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 20, bottom: 12 })
+      .padding({ left: 20, right: 20, top: this.statusBarVp + 20, bottom: 12 })
 
       Row() {
         SymbolGlyph($r('sys.symbol.chevron_backward'))
           .fontSize(20)
           .fontColor([this.brandMain])
+          .scale({ x: this.pressedChipKey === 'prev' ? 0.8 : 1, y: this.pressedChipKey === 'prev' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'prev';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => {
             this.goPrevWeek();
           })
@@ -400,6 +425,15 @@ struct WeeklyReportPage {
         SymbolGlyph($r('sys.symbol.chevron_right'))
           .fontSize(20)
           .fontColor(this.weekOffset === 0 ? [$r('app.color.border_color')] : [this.brandMain])
+          .scale({ x: this.pressedChipKey === 'next' ? 0.8 : 1, y: this.pressedChipKey === 'next' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'next';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => {
             this.goNextWeek();
           })
@@ -699,7 +733,7 @@ struct WeeklyReportPage {
             .margin({ bottom: 40 })
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 4 })
+          .padding({ left: 16, right: 16, top: 4, bottom: this.navBarVp })
         }
         .width('100%')
         .layoutWeight(1)
@@ -723,13 +757,4 @@ struct WeeklyReportPage {
     .backgroundColor($r('app.color.bg_main'))
   }
 
-  // 页面转场：从统计页进入时自右侧滑入，返回时向右滑出
-  pageTransition() {
-    PageTransitionEnter({ type: RouteType.Push, duration: 360, curve: AnimationConfig.CURVE })
-      .slide(SlideEffect.Right)
-    PageTransitionExit({ type: RouteType.Push, duration: 300, curve: AnimationConfig.CURVE })
-      .opacity(0)
-    PageTransitionExit({ type: RouteType.Pop, duration: 360, curve: AnimationConfig.CURVE })
-      .slide(SlideEffect.Right)
-  }
 }

@@ -3,7 +3,9 @@ import { promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import dataPreferences from '@ohos.data.preferences';
 import { hapticTick } from '../common/Haptics';
+import { HandIcon } from '../common/HandIcon';
 import { AnimationConfig } from './Index';
+import { MotionCurves } from '../common/Motion';
 import {
   ACHIEVEMENT_DEFS,
   getLevelInfo,
@@ -97,12 +99,14 @@ struct AchievementPage {
   @State fortune: FortuneState | null = null;
   @State report: MonthlyReportData | null = null;
   @State piggyPop: number = 1;
+  @State pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
 
   // ---------- 小鸡动画状态 ----------
   @State chickBreathe: number = 1;    // 待机呼吸缩放
   @State chickJumpY: number = 0;      // 点击跳跃位移
   @State chickRotate: number = 0;     // 摇摆/啄米角度
   @State chickScaleBoost: number = 1; // 进化瞬间放大
+  @State betaPulse: number = 1;      // Beta 徽标呼吸缩放
   @State bubbleText: string = '';     // 台词气泡
   @State bubbleVisible: boolean = false;
   @State feeding: boolean = false;    // 喂食动画中
@@ -116,6 +120,10 @@ struct AchievementPage {
     // 待机呼吸动画：1.0 ↔ 1.05 无限往复
     animateTo({ duration: 1300, curve: Curve.EaseInOut, iterations: -1, playMode: PlayMode.Alternate }, () => {
       this.chickBreathe = 1.05;
+    });
+    // Beta 徽标呼吸脉动
+    animateTo({ duration: 900, curve: Curve.EaseInOut, iterations: -1, playMode: PlayMode.Alternate }, () => {
+      this.betaPulse = 1.1;
     });
     await this.refreshData();
   }
@@ -143,7 +151,7 @@ struct AchievementPage {
     }
     if (fresh.length > 0) {
       const names: string[] = fresh.map((d: AchievementDef): string => d.name);
-      promptAction.showToast({ message: `🐣 小鸡捡到新宝贝：${names.join('、')}！`, duration: 2500 });
+      promptAction.showToast({ message: `小鸡捡到新宝贝：${names.join('、')}！`, duration: 2500 });
     }
     // 玩法数据：鸡蛋币 / 每日任务 / 鸡窝场景（进来看看小鸡也算完成今日任务）
     const firstVisitToday = await markDailyTask(this.context, 'visit_chick');
@@ -192,7 +200,7 @@ struct AchievementPage {
     if (reward > 0) {
       hapticTick();
       await this.refreshGameplayState();
-      promptAction.showToast({ message: `🥚 +${reward} 鸡蛋币已入账！`, duration: 1800 });
+      promptAction.showToast({ message: `+${reward} 鸡蛋币已入账！`, duration: 1800 });
     }
   }
 
@@ -214,7 +222,7 @@ struct AchievementPage {
     const f = await drawFortune(this.context);
     this.fortune = f;
     promptAction.showToast({
-      message: `${FORTUNE_LEVEL_EMOJI[f.level]} 今日运势：${FORTUNE_LEVEL_NAMES[f.level]}`,
+      message: `今日运势：${FORTUNE_LEVEL_NAMES[f.level]}`,
       duration: 1800
     });
   }
@@ -224,7 +232,7 @@ struct AchievementPage {
     if (reward > 0) {
       hapticTick();
       await this.refreshGameplayState();
-      promptAction.showToast({ message: `🌈 好运奖励 +${reward} 鸡蛋币！`, duration: 1800 });
+      promptAction.showToast({ message: `好运奖励 +${reward} 鸡蛋币！`, duration: 1800 });
     }
   }
 
@@ -242,7 +250,7 @@ struct AchievementPage {
         });
       }, 280);
       await this.refreshGameplayState();
-      promptAction.showToast({ message: `🏺 开罐啦！+${coins} 鸡蛋币！`, duration: 2000 });
+      promptAction.showToast({ message: `开罐啦！+${coins} 鸡蛋币！`, duration: 2000 });
     }
   }
 
@@ -286,7 +294,7 @@ struct AchievementPage {
           }
           hapticTick();
           this.refreshGameplayState();
-          promptAction.showToast({ message: `✈️ 小鸡出发去「${dest.name}」啦！`, duration: 1800 });
+          promptAction.showToast({ message: `小鸡出发去「${dest.name}」啦！`, duration: 1800 });
         });
       }
     }).catch(() => {});
@@ -304,7 +312,7 @@ struct AchievementPage {
       await this.refreshGameplayState();
       this.showBubble(`我回来啦！还带了${dest.souvenir}～`, 3000);
       promptAction.showToast({
-        message: `🎁 旅行归来！+${reward} 鸡蛋币，还带了${dest.souvenir}`,
+        message: `旅行归来！+${reward} 鸡蛋币，还带了${dest.souvenir}`,
         duration: 3000
       });
     }
@@ -422,8 +430,8 @@ struct AchievementPage {
         this.chickScaleBoost = 1;
       });
       this.celebrating = true;
-      this.showBubble('✨ 进化啦！我是' + this.currentStage().name + '！', 2600);
-      promptAction.showToast({ message: '🎉 小鸡进化：' + this.currentStage().name, duration: 2500 });
+      this.showBubble('进化啦！我是' + this.currentStage().name + '！', 2600);
+      promptAction.showToast({ message: '小鸡进化：' + this.currentStage().name, duration: 2500 });
     }, 790);
     setTimeout(() => {
       this.celebrating = false;
@@ -537,6 +545,21 @@ struct AchievementPage {
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
   @StorageProp('isWideScreen') isWideScreen: boolean = false;
 
+  @Builder
+  TapeDeco() {
+    Column()
+      .width(44)
+      .height(13)
+      .backgroundColor($r('app.color.income_gold'))
+      .opacity(0.45)
+      .borderRadius(2)
+      .rotate({ angle: -6 })
+  }
+
+  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
+  @StorageProp('statusBarVp') statusBarVp: number = 46;
+  @StorageProp('navBarVp') navBarVp: number = 28;
+
   build() {
     Row() {
     Column() {
@@ -546,10 +569,29 @@ struct AchievementPage {
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .fontColor([$r('app.color.text_primary')])
+          .scale({ x: this.pressedChipKey === 'back' ? 0.8 : 1, y: this.pressedChipKey === 'back' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'back';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => {
             router.back();
           })
           .margin({ right: 8 })
+
+        Text('Beta')
+          .fontSize(9)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_white'))
+          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+          .borderRadius(6)
+          .backgroundColor(this.brandMain)
+          .scale({ x: this.betaPulse, y: this.betaPulse })
+          .margin({ right: 6 })
 
         Text('小鸡养成')
           .fontSize(22)
@@ -562,7 +604,7 @@ struct AchievementPage {
           .fontColor($r('app.color.text_secondary'))
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 20, bottom: 16 })
+      .padding({ left: 20, right: 20, top: this.statusBarVp + 20, bottom: 16 })
 
       Divider()
         .color($r('app.color.border_color'))
@@ -593,17 +635,13 @@ struct AchievementPage {
 
               // 庆祝彩带
               if (this.celebrating) {
-                Text('🎉')
-                  .fontSize(26)
+                HandIcon({ name: 'party', iconSize: 26 })
                   .offset({ x: -86, y: -64 })
-                Text('✨')
-                  .fontSize(22)
+                HandIcon({ name: 'sparkle', iconSize: 22 })
                   .offset({ x: 82, y: -56 })
-                Text('🎊')
-                  .fontSize(24)
+                HandIcon({ name: 'confetti', iconSize: 24 })
                   .offset({ x: -78, y: 58 })
-                Text('✨')
-                  .fontSize(20)
+                HandIcon({ name: 'sparkle', iconSize: 20 })
                   .offset({ x: 88, y: 62 })
               }
 
@@ -660,8 +698,7 @@ struct AchievementPage {
 
               // 喂食的米粒
               if (this.feeding) {
-                Text('🌾')
-                  .fontSize(22)
+                HandIcon({ name: 'rice', iconSize: 22 })
                   .translate({ y: this.feedY, x: 60 })
               }
             }
@@ -784,14 +821,27 @@ struct AchievementPage {
 
             // 操作行：喂把米
             Row() {
-              Text('🌾 喂把米')
-                .fontSize(14)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(this.brandMain)
-                .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-                .backgroundColor(this.brandTint)
-                .borderRadius(18)
-                .onClick(() => { this.feed(); })
+              Row() {
+                HandIcon({ name: 'rice', iconSize: 15 })
+                Text('喂把米')
+                  .fontSize(14)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(this.brandMain)
+                  .margin({ left: 4 })
+              }
+              .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+              .backgroundColor(this.brandTint)
+              .borderRadius(18)
+              .scale({ x: this.pressedChipKey === 'feed' ? 0.92 : 1, y: this.pressedChipKey === 'feed' ? 0.92 : 1 })
+              .animation({ curve: MotionCurves.PRESS })
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  this.pressedChipKey = 'feed';
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  this.pressedChipKey = '';
+                }
+              })
+              .onClick(() => { this.feed(); })
 
               Text('每记一笔账 +5 成长值，小鸡会慢慢长大')
                 .fontSize(11)
@@ -804,8 +854,9 @@ struct AchievementPage {
           .width('100%')
           .padding({ left: 16, right: 16, top: 20, bottom: 18 })
           .backgroundColor($r('app.color.card_bg'))
-          .borderRadius(20)
-          .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+          .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
+          .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+          .overlay(this.TapeDeco(), { align: Alignment.TopStart, offset: { x: 22, y: -7 } })
           .margin({ top: 16, bottom: 8 })
 
           // ===== 每日鸡运签 =====
@@ -826,8 +877,7 @@ struct AchievementPage {
 
               if (this.fortune === null) {
                 Row() {
-                  Text('🎋')
-                    .fontSize(32)
+                  HandIcon({ name: 'bamboo', iconSize: 32 })
                   Column() {
                     Text('今天还没抽签')
                       .fontSize(15)
@@ -855,8 +905,7 @@ struct AchievementPage {
                 .alignItems(VerticalAlign.Center)
               } else {
                 Row() {
-                  Text(FORTUNE_LEVEL_EMOJI[this.fortune.level])
-                    .fontSize(34)
+                  HandIcon({ name: FORTUNE_LEVEL_EMOJI[this.fortune.level], iconSize: 34 })
                   Column() {
                     Row() {
                       Text(`今日运势 · ${FORTUNE_LEVEL_NAMES[this.fortune.level]}`)
@@ -921,8 +970,9 @@ struct AchievementPage {
             .width('100%')
             .padding({ left: 16, right: 16, top: 16, bottom: 14 })
             .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(20)
-            .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+            .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
+            .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+            .overlay(this.TapeDeco(), { align: Alignment.TopStart, offset: { x: 22, y: -7 } })
             .margin({ bottom: 8 })
             .transition(TransitionEffect.OPACITY
               .combine(TransitionEffect.translate({ y: 22 }))
@@ -936,35 +986,47 @@ struct AchievementPage {
                 .fontSize(17)
                 .fontWeight(FontWeight.Medium)
                 .fontColor($r('app.color.text_primary'))
-              Text(`🔥 连记 ${this.criteria.streakDays} 天 · 记账经验 ${getMultiplierText(getStreakMultiplier(this.criteria.streakDays))}`)
-                .fontSize(11)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(getStreakMultiplier(this.criteria.streakDays) > 1 ?
-                $r('app.color.budget_orange') : $r('app.color.text_secondary'))
-                .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-                .backgroundColor($r('app.color.category_btn_bg'))
-                .borderRadius(10)
-                .margin({ left: 8 })
-                .maxLines(1)
+              Row() {
+                HandIcon({ name: 'flame', iconSize: 13 })
+                Text(`连记 ${this.criteria.streakDays} 天 · 记账经验 ${getMultiplierText(getStreakMultiplier(this.criteria.streakDays))}`)
+                  .fontSize(11)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(getStreakMultiplier(this.criteria.streakDays) > 1 ?
+                  $r('app.color.budget_orange') : $r('app.color.text_secondary'))
+                  .margin({ left: 4 })
+                  .maxLines(1)
+              }
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .backgroundColor($r('app.color.category_btn_bg'))
+              .borderRadius(10)
+              .margin({ left: 8 })
+              .alignItems(VerticalAlign.Center)
               Blank()
-              Text(`🥚 ${this.eggCoins}`)
-                .fontSize(13)
-                .fontWeight(FontWeight.Bold)
-                .fontColor($r('app.color.income_gold'))
+              Row() {
+                HandIcon({ name: 'egg', iconSize: 14 })
+                Text(`${this.eggCoins}`)
+                  .fontSize(13)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor($r('app.color.income_gold'))
+                  .margin({ left: 3 })
+              }
+              .alignItems(VerticalAlign.Center)
             }
             .width('100%')
 
             if (this.taskCardReady) {
               ForEach(DAILY_TASK_DEFS, (task: DailyTaskDef, index: number) => {
                 Row() {
-                  Text(task.emoji)
-                    .fontSize(22)
-                    .width(38)
-                    .height(38)
-                    .textAlign(TextAlign.Center)
-                    .backgroundColor($r('app.color.category_btn_bg'))
-                    .borderRadius(19)
-                    .opacity(this.isTaskClaimed(task.id) ? 0.4 : 1)
+                  Column() {
+                    HandIcon({ name: task.emoji, iconSize: 20 })
+                  }
+                  .width(38)
+                  .height(38)
+                  .justifyContent(FlexAlign.Center)
+                  .alignItems(HorizontalAlign.Center)
+                  .backgroundColor($r('app.color.category_btn_bg'))
+                  .borderRadius(19)
+                  .opacity(this.isTaskClaimed(task.id) ? 0.4 : 1)
 
                   Column() {
                     Text(task.name)
@@ -1019,8 +1081,9 @@ struct AchievementPage {
           .width('100%')
           .padding({ left: 16, right: 16, top: 16, bottom: 14 })
           .backgroundColor($r('app.color.card_bg'))
-          .borderRadius(20)
-          .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+          .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
+          .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+          .overlay(this.TapeDeco(), { align: Alignment.TopStart, offset: { x: 22, y: -7 } })
           .margin({ bottom: 8 })
 
           // ===== 幸运存钱罐 =====
@@ -1040,8 +1103,7 @@ struct AchievementPage {
               .margin({ bottom: 10 })
 
               Row() {
-                Text('🏺')
-                  .fontSize(34)
+                HandIcon({ name: 'jar', iconSize: 34 })
                   .scale({ x: this.piggyPop, y: this.piggyPop })
                 Column() {
                   Progress({
@@ -1082,8 +1144,9 @@ struct AchievementPage {
             .width('100%')
             .padding({ left: 16, right: 16, top: 16, bottom: 14 })
             .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(20)
-            .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+            .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
+            .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+            .overlay(this.TapeDeco(), { align: Alignment.TopStart, offset: { x: 22, y: -7 } })
             .margin({ bottom: 8 })
             .transition(TransitionEffect.OPACITY
               .combine(TransitionEffect.translate({ y: 22 }))
@@ -1108,8 +1171,7 @@ struct AchievementPage {
 
               if (this.travel !== null) {
                 Row() {
-                  Text(getTravelDestination(this.travel.destId).emoji)
-                    .fontSize(34)
+                  HandIcon({ name: getTravelDestination(this.travel.destId).emoji, iconSize: 34 })
                   Column() {
                     Text(getTravelDestination(this.travel.destId).name)
                       .fontSize(15)
@@ -1158,8 +1220,7 @@ struct AchievementPage {
               } else {
                 ForEach(TRAVEL_DESTINATIONS, (dest: TravelDestination) => {
                   Row() {
-                    Text(dest.emoji)
-                      .fontSize(26)
+                    HandIcon({ name: dest.emoji, iconSize: 26 })
                     Column() {
                       Text(dest.name)
                         .fontSize(14)
@@ -1174,16 +1235,21 @@ struct AchievementPage {
                     .layoutWeight(1)
                     .margin({ left: 10 })
 
-                    Text(`🥚 ${dest.cost} 出发`)
-                      .fontSize(12)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor(this.eggCoins >= dest.cost ?
-                      this.brandMain : $r('app.color.text_secondary'))
-                      .padding({ left: 10, right: 10, top: 7, bottom: 7 })
-                      .borderRadius(14)
-                      .backgroundColor(this.eggCoins >= dest.cost ?
-                      this.brandTint : $r('app.color.category_btn_bg'))
-                      .onClick(() => { this.onStartTravel(dest); })
+                    Row() {
+                      HandIcon({ name: 'egg', iconSize: 13 })
+                      Text(`${dest.cost} 出发`)
+                        .fontSize(12)
+                        .fontWeight(FontWeight.Medium)
+                        .fontColor(this.eggCoins >= dest.cost ?
+                        this.brandMain : $r('app.color.text_secondary'))
+                        .margin({ left: 3 })
+                    }
+                    .alignItems(VerticalAlign.Center)
+                    .padding({ left: 10, right: 10, top: 7, bottom: 7 })
+                    .borderRadius(14)
+                    .backgroundColor(this.eggCoins >= dest.cost ?
+                    this.brandTint : $r('app.color.category_btn_bg'))
+                    .onClick(() => { this.onStartTravel(dest); })
                   }
                   .width('100%')
                   .padding({ top: 8, bottom: 8 })
@@ -1195,13 +1261,79 @@ struct AchievementPage {
             .width('100%')
             .padding({ left: 16, right: 16, top: 16, bottom: 12 })
             .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(20)
-            .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+            .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
+            .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+            .overlay(this.TapeDeco(), { align: Alignment.TopStart, offset: { x: 22, y: -7 } })
             .margin({ bottom: 8 })
             .transition(TransitionEffect.OPACITY
               .combine(TransitionEffect.translate({ y: 22 }))
               .animation({ delay: 140, curve: AnimationConfig.SPRING_SOFT }))
           }
+
+          // ===== 玩法乐园入口 =====
+          Column() {
+            Row() {
+              Text('Beta')
+                .fontSize(9)
+                .fontWeight(FontWeight.Bold)
+                .fontColor($r('app.color.text_white'))
+                .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                .borderRadius(6)
+                .backgroundColor(this.brandMain)
+                .margin({ right: 6 })
+              Text('玩法乐园')
+                .fontSize(17)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_primary'))
+              Blank()
+              Text('5 种新玩法等你解锁')
+                .fontSize(11)
+                .fontColor($r('app.color.text_secondary'))
+            }
+            .width('100%')
+            .margin({ bottom: 10 })
+
+            Row() {
+              HandIcon({ name: 'tree', iconSize: 30 })
+              Column() {
+                Text('摇钱树 · 盲盒机 · 守护战')
+                  .fontSize(14)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor($r('app.color.text_primary'))
+                Text('签到日历 · 无消费日挑战')
+                  .fontSize(11)
+                  .fontColor($r('app.color.text_secondary'))
+                  .margin({ top: 2 })
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+              .margin({ left: 12 })
+
+              Text('进入')
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_white'))
+                .backgroundColor(this.brandMain)
+                .borderRadius(16)
+                .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+                .onClick(() => {
+                  hapticTick();
+                  router.pushUrl({ url: 'pages/PlaygroundPage' });
+                })
+            }
+            .width('100%')
+            .alignItems(VerticalAlign.Center)
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 16, bottom: 14 })
+          .backgroundColor($r('app.color.card_bg'))
+          .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
+          .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+          .overlay(this.TapeDeco(), { align: Alignment.TopStart, offset: { x: 22, y: -7 } })
+          .margin({ bottom: 8 })
+          .transition(TransitionEffect.OPACITY
+            .combine(TransitionEffect.translate({ y: 22 }))
+            .animation({ delay: 150, curve: AnimationConfig.SPRING_SOFT }))
 
           // ===== 鸡窝装修 =====
           Column() {
@@ -1211,10 +1343,19 @@ struct AchievementPage {
                 .fontWeight(FontWeight.Medium)
                 .fontColor($r('app.color.text_primary'))
               Blank()
-              Text(`我的鸡蛋币 🥚 ${this.eggCoins}`)
-                .fontSize(12)
-                .fontWeight(FontWeight.Medium)
-                .fontColor($r('app.color.income_gold'))
+              Row() {
+                Text('我的鸡蛋币')
+                  .fontSize(12)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor($r('app.color.income_gold'))
+                HandIcon({ name: 'egg', iconSize: 13 })
+                  .margin({ left: 4, right: 3 })
+                Text(`${this.eggCoins}`)
+                  .fontSize(12)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor($r('app.color.income_gold'))
+              }
+              .alignItems(VerticalAlign.Center)
             }
             .width('100%')
             .margin({ bottom: 10 })
@@ -1249,12 +1390,17 @@ struct AchievementPage {
                       .fontColor($r('app.color.success_green'))
                       .margin({ top: 2 })
                   } else {
-                    Text(`🥚 ${def.price}`)
-                      .fontSize(11)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor(this.eggCoins >= def.price ?
-                      $r('app.color.income_gold') : $r('app.color.text_secondary'))
-                      .margin({ top: 2 })
+                    Row() {
+                      HandIcon({ name: 'egg', iconSize: 12 })
+                      Text(`${def.price}`)
+                        .fontSize(11)
+                        .fontWeight(FontWeight.Medium)
+                        .fontColor(this.eggCoins >= def.price ?
+                        $r('app.color.income_gold') : $r('app.color.text_secondary'))
+                        .margin({ left: 2 })
+                    }
+                    .margin({ top: 2 })
+                    .alignItems(VerticalAlign.Center)
                   }
                 }
                 .width('31%')
@@ -1280,18 +1426,24 @@ struct AchievementPage {
           .width('100%')
           .padding({ left: 16, right: 16, top: 16, bottom: 12 })
           .backgroundColor($r('app.color.card_bg'))
-          .borderRadius(20)
-          .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+          .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
+          .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+          .overlay(this.TapeDeco(), { align: Alignment.TopStart, offset: { x: 22, y: -7 } })
           .margin({ bottom: 8 })
 
           // ===== 本月小鸡报告 =====
           if (this.taskCardReady && this.report !== null) {
             Column() {
               Row() {
-                Text(`📊 ${this.report.monthLabel}小鸡报告`)
+              Row() {
+                HandIcon({ name: 'chart', iconSize: 17 })
+                Text(`${this.report.monthLabel}小鸡报告`)
                   .fontSize(17)
                   .fontWeight(FontWeight.Medium)
                   .fontColor($r('app.color.text_primary'))
+                  .margin({ left: 5 })
+              }
+              .alignItems(VerticalAlign.Center)
                 Blank()
                 Text(`记账 ${this.report.billCount} 笔`)
                   .fontSize(11)
@@ -1347,8 +1499,7 @@ struct AchievementPage {
 
               ForEach(this.report.comments, (c: string) => {
                 Row() {
-                  Text('🐤')
-                    .fontSize(13)
+                  HandIcon({ name: 'chick', iconSize: 13 })
                     .margin({ right: 6 })
                   Text(c)
                     .fontSize(12)
@@ -1363,8 +1514,9 @@ struct AchievementPage {
             .width('100%')
             .padding({ left: 16, right: 16, top: 16, bottom: 14 })
             .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(20)
-            .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+            .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
+            .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+            .overlay(this.TapeDeco(), { align: Alignment.TopStart, offset: { x: 22, y: -7 } })
             .margin({ bottom: 8 })
             .transition(TransitionEffect.OPACITY
               .combine(TransitionEffect.translate({ y: 22 }))
@@ -1451,8 +1603,8 @@ struct AchievementPage {
                 .padding({ top: 14, bottom: 14, left: 10, right: 10 })
                 .alignItems(HorizontalAlign.Center)
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius(16)
-                .shadow({ radius: 12, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 4 })
+                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
                 .margin({ bottom: 12 })
                 .transition(TransitionEffect.OPACITY
                   .combine(TransitionEffect.translate({ y: 26 }))
@@ -1465,7 +1617,7 @@ struct AchievementPage {
 
           Column()
             .width('100%')
-            .height(44)
+            .height(this.navBarVp + 44)
         }
         .width('100%')
         .padding({ left: 20, right: 20 })
@@ -1487,4 +1639,5 @@ struct AchievementPage {
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
   }
+
 }

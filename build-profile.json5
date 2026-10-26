@@ -41,7 +41,7 @@
             useNormalizedOHMUrl: true,
           },
         },
-        versionCode: 1000006,
+        versionCode: 1000007,
         versionName: '1.5.0',
       },
     ],

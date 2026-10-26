@@ -12,6 +12,7 @@
     "pages/AnnualReportPage",
     "pages/WeeklyReportPage",
     "pages/SavingGoalDetailPage",
-    "pages/GuideIntroPage"
+    "pages/GuideIntroPage",
+    "pages/PlaygroundPage"
   ]
 }

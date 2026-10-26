@@ -5,6 +5,7 @@ import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
 import { BillItem, RecycleBillItem, getCategoryColor, AnimationConfig } from './Index';
 import { deleteBillPhotos } from '../common/BillPhotos';
+import { MotionCurves } from '../common/Motion';
 
 const RECYCLE_KEY: string = 'recycle_bills';
 const RETENTION_DAYS: number = 30;
@@ -20,6 +21,7 @@ interface AssetCategory {
 struct RecycleBinPage {
   @StorageProp('brand_main') brandMain: string = '#4E6EF2';
   @State recycleItems: RecycleBillItem[] = [];
+  @State pressedChipKey: string = '';
 
   aboutToAppear() {
     this.loadAndPurge();
@@ -173,6 +175,10 @@ struct RecycleBinPage {
   // 宽屏断点（全局）：平板/折叠屏下内容限宽居中
   @StorageProp('isWideScreen') isWideScreen: boolean = false;
 
+  // 全屏沉浸式布局：状态栏/手势条避让高度由 EntryAbility 发布到 AppStorage，页面据此留白避让
+  @StorageProp('statusBarVp') statusBarVp: number = 46;
+  @StorageProp('navBarVp') navBarVp: number = 28;
+
   build() {
     Row() {
     Column() {
@@ -181,6 +187,15 @@ struct RecycleBinPage {
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .fontColor([$r('app.color.text_primary')])
+          .scale({ x: this.pressedChipKey === 'back' ? 0.8 : 1, y: this.pressedChipKey === 'back' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'back';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
           .onClick(() => {
             router.back();
           })
@@ -196,6 +211,15 @@ struct RecycleBinPage {
           Text('清空')
             .fontSize(16)
             .fontColor($r('app.color.expense_red'))
+            .scale({ x: this.pressedChipKey === 'clear' ? 0.85 : 1, y: this.pressedChipKey === 'clear' ? 0.85 : 1 })
+            .animation({ curve: MotionCurves.PRESS })
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.pressedChipKey = 'clear';
+              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                this.pressedChipKey = '';
+              }
+            })
             .onClick(() => {
               this.clearAll();
             })
@@ -205,7 +229,7 @@ struct RecycleBinPage {
         }
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 20, bottom: 16 })
+      .padding({ left: 20, right: 20, top: this.statusBarVp + 20, bottom: 16 })
 
       Divider()
         .color($r('app.color.border_color'))
@@ -240,7 +264,7 @@ struct RecycleBinPage {
           .animation({ curve: AnimationConfig.SPRING_SOFT }))
       } else {
         List() {
-          ForEach(this.recycleItems, (item: RecycleBillItem) => {
+          ForEach(this.recycleItems, (item: RecycleBillItem, index: number) => {
             ListItem() {
               Column() {
                 Row() {
@@ -295,6 +319,15 @@ struct RecycleBinPage {
                     .height(28)
                     .padding({ left: 16, right: 16 })
                     .fontSize(13)
+                    .scale({ x: this.pressedChipKey === 'restore_' + index ? 0.9 : 1, y: this.pressedChipKey === 'restore_' + index ? 0.9 : 1 })
+                    .animation({ curve: MotionCurves.PRESS })
+                    .onTouch((event: TouchEvent) => {
+                      if (event.type === TouchType.Down) {
+                        this.pressedChipKey = 'restore_' + index;
+                      } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                        this.pressedChipKey = '';
+                      }
+                    })
                     .onClick(() => {
                       this.restoreBill(item);
                     })
@@ -321,8 +354,22 @@ struct RecycleBinPage {
               .transition(TransitionEffect.OPACITY
                 .combine(TransitionEffect.scale({ x: 0.9, y: 0.9 }))
                 .animation({ curve: AnimationConfig.SPRING }))
+              .scale({ x: this.pressedChipKey === 'item_' + index ? 0.96 : 1, y: this.pressedChipKey === 'item_' + index ? 0.96 : 1 })
+              .animation({ curve: MotionCurves.PRESS })
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  this.pressedChipKey = 'item_' + index;
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  this.pressedChipKey = '';
+                }
+              })
             }
           }, (item: RecycleBillItem) => item.bill.id.toString() + '_' + item.deletedAt.toString())
+
+          // 尾部占位：列表可滚入底部手势条区域，最后一项仍可完整停在手势条上方
+          ListItem() {
+            Column().height(this.navBarVp + 8)
+          }
         }
         .width('100%')
         .layoutWeight(1)
@@ -342,4 +389,5 @@ struct RecycleBinPage {
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.bg_main'))
   }
+
 }

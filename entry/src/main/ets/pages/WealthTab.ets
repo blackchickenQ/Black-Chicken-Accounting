@@ -1,5 +1,5 @@
 import dataPreferences from '@ohos.data.preferences';
-import { common } from '@kit.AbilityKit';
+import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { AnimationConfig, BillItem, DEFAULT_LEDGER_ID, LedgerItem } from './Index';
 import { MotionCurves } from '../common/Motion';
 import { ASSET_PALETTE } from '../common/AppTheme';
@@ -17,7 +17,7 @@ import {
   getChallengePeriodAmount,
   getChallengePlannedTotal
 } from '../common/Gameplay';
-import { BrandSignals, DeviceSignals, WealthSignals } from '../common/V2Signals';
+import { BrandSignals, ColorModeSignals, DeviceSignals, WealthSignals } from '../common/V2Signals';
 
 interface FundAccount {
   name: string;
@@ -1034,6 +1034,7 @@ export struct WealthTab {
   // V2 全局信号（AppStorageV2 桥接层，替代原 @StorageProp）
   @Local brandSignals: BrandSignals = BrandSignals.connect();
   @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Computed get brandTint(): string { return this.brandSignals.tint; }
   @Local deviceSignals: DeviceSignals = DeviceSignals.connect();
   // 沉浸式布局：状态栏避让高度（顶部占位条内部消化，背景延伸到状态栏下）
   @Computed get statusBarVp(): number { return this.deviceSignals.statusBarVp; }
@@ -1048,6 +1049,10 @@ export struct WealthTab {
   // 'asset' 资产 | 'saving' 存钱；StorageLink 便于资产明细页跳转时切回资产界面
   @Local wealthSignals: WealthSignals = WealthSignals.connect();
   @Computed get wealthMode(): string { return this.wealthSignals.mode; }
+  // 滚动联动顶部玻璃栏：0=顶部（全透明）→ 1=已滚动（毛玻璃+发丝线），主内容区 onDidScroll 驱动
+  @Local headerGlass: number = 0;
+  // 深浅色判断（玻璃栏配色分支）
+  @Local colorModeSignals: ColorModeSignals = ColorModeSignals.connect();
   // 主导航栈（Index 传入）：存钱目标详情经系统路由表压入
   @Param navPathStack: NavPathStack = new NavPathStack();
   // 目标详情页改动存钱数据后置位，回到财富页时自动刷新目标列表
@@ -2476,8 +2481,8 @@ export struct WealthTab {
     .width('100%')
     .padding(16)
     .backgroundColor($r('app.color.card_bg'))
-    .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-    .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+    .borderRadius(18)
+    .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
     .margin({ bottom: 12 })
   }
 
@@ -2553,8 +2558,8 @@ export struct WealthTab {
       .width('100%')
       .padding(16)
       .backgroundColor($r('app.color.card_bg'))
-      .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-      .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+      .borderRadius(18)
+      .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
       .margin({ bottom: 12 })
     }
   }
@@ -2605,8 +2610,8 @@ export struct WealthTab {
       .width('100%')
       .padding(16)
       .backgroundColor($r('app.color.card_bg'))
-      .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-      .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+      .borderRadius(18)
+      .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
       .margin({ bottom: 12 })
     }
   }
@@ -2619,13 +2624,33 @@ export struct WealthTab {
       .objectFit(ImageFit.Fill)
   }
 
+  // ---------- 滚动联动顶部玻璃栏：随滚动渐显的毛玻璃底与发丝线 ----------
+  // level: 0（顶部）→ 1（滚动后），56vp 滚动行程内完成透明过渡
+  headerPlateBg(level: number): string {
+    const clamped: number = Math.max(0, Math.min(1, level));
+    if (this.colorModeSignals.mode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK) {
+      return 'rgba(14, 15, 21, ' + (clamped * 0.86).toFixed(3) + ')';
+    }
+    return 'rgba(241, 243, 250, ' + (clamped * 0.86).toFixed(3) + ')';
+  }
+
+  headerPlateLine(level: number): string {
+    const clamped: number = Math.max(0, Math.min(1, level));
+    if (this.colorModeSignals.mode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK) {
+      return 'rgba(40, 43, 56, ' + (clamped * 0.7).toFixed(3) + ')';
+    }
+    return 'rgba(203, 209, 224, ' + (clamped * 0.7).toFixed(3) + ')';
+  }
+
   build() {
     Column() {
+      // 顶部玻璃栏：初始全透明，随内容滚动渐显毛玻璃+发丝线（系统应用式透明过渡）
+      Column() {
       // 状态栏占位：高度含状态栏避让，背景延伸到状态栏下（沉浸式）
       Row()
         .width('100%')
         .height(this.statusBarVp + 10)
-        .backgroundColor($r('app.color.bg_main'))
+        .backgroundColor(Color.Transparent)
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
         .flexShrink(0)
 
@@ -2699,6 +2724,15 @@ export struct WealthTab {
       }
       .width('100%')
       .margin({ top: 10, bottom: 12 })
+      }
+      .width('100%')
+      .backgroundEffect({
+        // 模糊半径随滚动渐增：顶部 0（完全透明直透背景光斑）→ 40vp 毛玻璃
+        radius: this.headerGlass * 40,
+        color: this.headerPlateBg(this.headerGlass)
+      })
+      .border({ width: { bottom: 1 }, color: this.headerPlateLine(this.headerGlass) })
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
 
       Scroll() {
         Column() {
@@ -2768,8 +2802,8 @@ export struct WealthTab {
               .width('100%')
               .padding(16)
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+              .borderRadius(18)
+              .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
               .margin({ bottom: 12 })
 
               // 卡片 1.5：财务健康度
@@ -2835,8 +2869,8 @@ export struct WealthTab {
               .width('100%')
               .padding(16)
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+              .borderRadius(18)
+              .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
               .margin({ bottom: 12 })
 
               // 卡片 2.5：资产分布
@@ -2925,8 +2959,8 @@ export struct WealthTab {
               .width('100%')
               .padding(16)
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+              .borderRadius(18)
+              .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
               .margin({ bottom: 12 })
 
               // 卡片 3.5：净资产趋势
@@ -2990,8 +3024,8 @@ export struct WealthTab {
                 .alignItems(HorizontalAlign.Center)
                 .padding({ top: 40, bottom: 40 })
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                .borderRadius(18)
+                .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
               } else {
                 // 每个存钱目标一张独立小卡片：点击卡片进入目标详情页（旅程/存入/日记）
                 ForEach(this.savingGoals, (item: SavingGoal, index: number) => {
@@ -3080,8 +3114,8 @@ export struct WealthTab {
                   .width('100%')
                   .padding(16)
                   .backgroundColor($r('app.color.card_bg'))
-                  .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-                  .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                  .borderRadius(18)
+                  .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
                   .margin({ bottom: 12 })
                   .onClick(() => { this.openGoalDetail(item); })
                 }, (item: SavingGoal) =>
@@ -3118,8 +3152,8 @@ export struct WealthTab {
                 .alignItems(HorizontalAlign.Center)
                 .padding({ top: 26, bottom: 26 })
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                .borderRadius(18)
+                .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
               } else {
                 ForEach(this.wishes, (item: WishItem, index: number) => {
                   Column() {
@@ -3235,8 +3269,8 @@ export struct WealthTab {
                   .width('100%')
                   .padding(16)
                   .backgroundColor($r('app.color.card_bg'))
-                  .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-                  .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                  .borderRadius(18)
+                  .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
                   .margin({ bottom: 12 })
                   .onClick(() => {
                     if (item.status === 'cooling' && wishCoolingRemain(item) === 0) {
@@ -3254,6 +3288,62 @@ export struct WealthTab {
               .animation({ curve: AnimationConfig.SPRING_SOFT }))
           }
 
+          // ===== 赚钱计时入口 =====
+          Row() {
+            Row() {
+              HandIcon({ name: 'hourglass', iconSize: 22 })
+            }
+            .width(42)
+            .height(42)
+            .justifyContent(FlexAlign.Center)
+            .backgroundColor(this.brandTint)
+            .borderRadius(12)
+
+            Column() {
+              Text('赚钱计时')
+                .fontSize(16)
+                .fontWeight(FontWeight.Bold)
+                .fontColor($r('app.color.text_primary'))
+              Text('设定时薪开始工作，实时看钱进账')
+                .fontSize(12)
+                .fontColor($r('app.color.text_secondary'))
+                .margin({ top: 3 })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            .margin({ left: 12 })
+
+            Text('开始')
+              .fontSize(13)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('app.color.text_white'))
+              .padding({ left: 16, right: 16, top: 7, bottom: 7 })
+              .backgroundColor($r('app.color.income_gold'))
+              .borderRadius(15)
+            .scale({
+              x: this.pressedChipKey === 'earning_go' ? 0.92 : 1,
+              y: this.pressedChipKey === 'earning_go' ? 0.92 : 1
+            })
+            .animation({ curve: MotionCurves.PRESS })
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.pressedChipKey = 'earning_go';
+              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                this.pressedChipKey = '';
+              }
+            })
+          }
+          .width('100%')
+          .padding(14)
+          .backgroundColor($r('app.color.card_bg'))
+          .borderRadius(18)
+          .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 })
+          .border({ width: 1, color: $r('app.color.border_color') })
+          .margin({ top: 4, bottom: 12 })
+          .onClick(() => {
+            this.navPathStack.pushPathByName('EarningTimerPage', undefined);
+          })
+
           // 尾部占位：避开悬浮页签栏（栏高 56 + 底边距 navBarVp + 呼吸 12），划到底部内容不被栏体遮挡
           Column()
             .width('100%')
@@ -3266,11 +3356,15 @@ export struct WealthTab {
       .layoutWeight(1)
       .scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.Spring)
+      .onDidScroll((scrollOffset: number, scrollState: ScrollState) => {
+        // 滚动联动玻璃栏：56vp 行程内完成 透明→毛玻璃 过渡
+        this.headerGlass = Math.max(0, Math.min(1, this.headerGlass + scrollOffset / 56));
+      })
     }
     .width('100%')
     .height('100%')
     .padding({ left: 20, right: 20 })
-    .backgroundColor($r('app.color.bg_main'))
+    .backgroundColor(Color.Transparent)
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 }

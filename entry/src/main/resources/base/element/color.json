@@ -2,7 +2,7 @@
   "color": [
     {
       "name": "bg_main",
-      "value": "#F6F7FB"
+      "value": "#F1F3FA"
     },
     {
       "name": "card_bg",
@@ -46,7 +46,7 @@
     },
     {
       "name": "border_color",
-      "value": "#EBEEF5"
+      "value": "#E9ECF5"
     },
     {
       "name": "expense_tag_bg",
@@ -66,7 +66,7 @@
     },
     {
       "name": "category_btn_bg",
-      "value": "#F2F4FA"
+      "value": "#EDF1FB"
     },
     {
       "name": "stat_text_color",
@@ -82,7 +82,7 @@
     },
     {
       "name": "status_bar_bg",
-      "value": "#F6F7FB"
+      "value": "#F1F3FA"
     },
     { "name": "calendar_bg", "value": "#FFFFFF" },
     { "name": "calendar_text", "value": "#252a34" },
@@ -97,9 +97,10 @@
     { "name": "chart_grid", "value": "#EEF0F4" },
     { "name": "chart_text", "value": "#666666" },
     { "name": "chart_text_light", "value": "#999999" },
-    { "name": "shadow_color", "value": "#142E4D8C" },
-    { "name": "glass_bg", "value": "#E6F6F7FB" },
+    { "name": "shadow_color", "value": "#1C3A55E0" },
+    { "name": "glass_bg", "value": "#D9F1F3FA" },
     { "name": "ink_line", "value": "#1A1C2B" },
-    { "name": "ink_shadow", "value": "#2E1A1C2B" }
+    { "name": "ink_shadow", "value": "#2E1A1C2B" },
+    { "name": "skeleton_track", "value": "#E7EAF3" }
   ]
 }

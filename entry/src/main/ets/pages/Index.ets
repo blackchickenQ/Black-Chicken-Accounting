@@ -19,7 +19,7 @@ import { CalendarTab } from './CalendarTab';
 import { WealthTab } from './WealthTab';
 import { WealthSignals, BrandSignals, ColorModeSignals } from '../common/V2Signals';
 import { CategoryManageParams } from './CategoryManagePage';
-import { ASSET_PALETTE, getChartPalette, applyBrandTheme, BRAND_THEMES, BRAND_THEME_INDEX_KEY, BrandThemePreset } from '../common/AppTheme';
+import { ASSET_PALETTE, getChartPalette, applyBrandTheme, BRAND_THEMES, BRAND_THEME_INDEX_KEY, BrandThemePreset, withAlpha } from '../common/AppTheme';
 import {
   getLevelInfo,
   addXp,
@@ -34,6 +34,7 @@ import { trackPlaygroundOnBill } from '../common/GameplayPlus';
 import { HandIcon } from '../common/HandIcon';
 import { BaseCalendar } from 'base_calendar';
 import { curves } from '@kit.ArkUI';
+import { AnimatorOptions, AnimatorResult } from '@kit.ArkUI';
 import { updateAllWidgetCards } from '../entryformability/EntryFormAbility';
 import { isPinSet, savePin, clearPin, verifyPin, saveBackupPassword, isBackupSet,
   verifyBackupPassword, saveLockHint, getLockHint, saveFingerprintUnlockEnabled,
@@ -42,9 +43,22 @@ import { isPinSet, savePin, clearPin, verifyPin, saveBackupPassword, isBackupSet
 import { userAuth } from '@kit.UserAuthenticationKit';
 import { ReminderItem, ReminderInput, ReminderCreditAccount, ReminderSavingGoal, buildReminders } from '../common/Reminders';
 import { authentication } from '@kit.AccountKit';
-import { pickBillPhotos, deleteBillPhotos, clearAllBillPhotos, MAX_BILL_PHOTOS } from '../common/BillPhotos';
+import { pickBillPhotos, takeBillPhoto, deleteBillPhotos, clearAllBillPhotos, MAX_BILL_PHOTOS, sandboxPathFromUri } from '../common/BillPhotos';
+import { recognizeBillInfo, pickPayment, OcrBillInfo } from '../common/BillOcr';
+import { rotateBillPhoto, enhanceBillPhoto } from '../common/BillPhotoEdit';
+import { requestMicPermission, parseVoiceBillText, VoiceBillParse, VoiceInputEngine } from '../common/VoiceBill';
+import { requestLocationPermission, getCurrentLocationName } from '../common/BillLocation';
+import { zlib } from '@kit.BasicServicesKit';
+import { pdfService } from '@kit.PDFKit';
+import { image } from '@kit.ImageKit';
 import { hapticTick } from '../common/Haptics';
 import { MotionCurves } from '../common/Motion';
+import { AnimatedNumber } from '../common/AnimatedNumber';
+import { CalculatorSheet } from '../common/CalculatorSheet';
+import { formatCalcAmount } from '../common/CalcExpr';
+import { BillListSkeleton, EmptyState } from '../common/Skeleton';
+import { ShakeHelper } from '../common/ShakeHelper';
+import { pasteboard } from '@kit.BasicServicesKit';
 
 
 // ---------- 1. 全局动画配置 ----------
@@ -135,6 +149,50 @@ export function getLedgerIconResource(iconKey: string): Resource {
   }
 }
 
+// 剪贴板金额提取：依次尝试「¥/￥开头」「金额：xx」「xx元/块结尾」三种常见写法，识别失败返回 null
+function extractClipAmount(text: string): number | null {
+  const currencyMatch: RegExpMatchArray | null = text.match(/(?:¥|￥)\s*([0-9]+(?:\.[0-9]{1,2})?)/);
+  if (currencyMatch !== null) {
+    const v: number = Number(currencyMatch[1]);
+    if (v > 0) {
+      return v;
+    }
+  }
+  const labelMatch: RegExpMatchArray | null = text.match(/金额[:：]?\s*([0-9]+(?:\.[0-9]{1,2})?)/);
+  if (labelMatch !== null) {
+    const v: number = Number(labelMatch[1]);
+    if (v > 0) {
+      return v;
+    }
+  }
+  const suffixMatch: RegExpMatchArray | null = text.match(/([0-9]+(?:\.[0-9]{1,2})?)\s*(?:元|块)/);
+  if (suffixMatch !== null) {
+    const v: number = Number(suffixMatch[1]);
+    if (v > 0) {
+      return v;
+    }
+  }
+  return null;
+}
+
+// 文件名安全化：去掉文件名非法字符并限长（报销包小票图片命名用）
+function sanitizeFileNamePart(name: string): string {
+  let cleaned: string = name.replace(/[\\/:*?"<>|\r\n\t]+/g, '_');
+  if (cleaned.length > 20) {
+    cleaned = cleaned.substring(0, 20);
+  }
+  cleaned = cleaned.trim();
+  return cleaned.length > 0 ? cleaned : 'bill';
+}
+
+// 按字符数截断文本（PDF 行内空间有限，超长用途/分类截断用）
+function truncateText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return text.substring(0, maxChars - 1) + '…';
+}
+
 // 分类取色：内置分类用固定色，自定义分类按名称哈希取调色板颜色
 export function getCategoryColor(category: string): string {
   const color = CATEGORY_COLORS[category];
@@ -150,6 +208,19 @@ export function getCategoryColor(category: string): string {
     hash = (hash * 31 + category.charCodeAt(i)) % 1000000;
   }
   return palette[hash % palette.length];
+}
+
+// 记账草稿：记一笔表单未保存关闭时自动暂存，下次打开直接恢复（不含照片，临时 URI 不可靠）
+interface BillAddDraft {
+  name: string;
+  amount: string;
+  dateMs: number;
+  category: string;
+  type: string;  // '收入' | '支出'
+  source: string;
+  tags: string[];
+  location: string;
+  savedAt: number;
 }
 
 // ========== 添加账单弹层（原生半模态 bindSheet，构建器见 Index.AddSheetBuilder） ==========
@@ -174,27 +245,547 @@ struct AddBillSheetContent {
   @Local selectedTags: string[] = [];  // 已选择的标签列表
   @Local availableTags: string[] = [];  // 已有的标签列表
   @Local selectedPhotos: string[] = [];  // 已选小票图片
+  @Local ocrRunning: boolean = false;  // 小票 OCR 识别中
+  @Local previewPhotoUri: string = '';  // 全屏预览的小票图片
+  @Local previewPhotoShow: boolean = false;  // 全屏预览显隐
+  // OCR 结果可编辑确认
+  @Local ocrConfirmShow: boolean = false;
+  @Local ocrEditAmount: string = '';
+  @Local ocrEditName: string = '';
+  @Local ocrEditDateMs: number = 0;
+  @Local ocrEditHasDate: boolean = false;
+  @Local ocrEditSource: string = '';
+  // 小票图片优化（旋转/增强后再 OCR）
+  @Local photoEditShow: boolean = false;
+  @Local photoEditUri: string = '';
+  @Local photoEditBusy: boolean = false;
+  // 语音记账
+  @Local voiceSheetShow: boolean = false;
+  @Local voiceListening: boolean = false;
+  @Local voiceText: string = '';
+  private voiceEngine: VoiceInputEngine = new VoiceInputEngine();
+  // 消费地点记录：定位 + 逆地理编码得到的可读地名
+  @Local selectedLocation: string = '';
+  @Local locationLoading: boolean = false;
   @Local pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
   @Local cancelBtnScale: number = 1;  // 取消按钮按压缩放
   @Local confirmBtnScale: number = 1;  // 添加按钮按压缩放
   submitted: boolean = false;  // 是否已提交（取消时清理未使用的图片文件）
+  @Local savedThisSession: boolean = false;  // 本次已成功保存：关闭时不再写记账草稿
+  @Local calcSheetShow: boolean = false;  // 金额计算器弹层显隐
+
+  // 打开弹层时预填的金额（剪贴板识别到金额后带值打开记一笔）；空串表示不预填
+  @Param presetAmount: string = '';
 
 
   // 第 42 行附近
-  @Param onAddBill: (name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[], photos: string[]) => void = () => {};
+  @Param onAddBill: (name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[], photos: string[], location: string) => void = () => {};
 
-  // 从相册选择小票图片（拷贝到应用沙箱）
+  // 添加小票图片：先弹菜单选择「当场拍照」或「从图库选择」，成功后拷贝到沙箱并自动端侧 OCR 预填金额/日期
   async choosePhotos() {
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const remain = MAX_BILL_PHOTOS - this.selectedPhotos.length;
-      const saved = await pickBillPhotos(context, remain);
+      if (remain <= 0) {
+        return;
+      }
+      const menu = await this.getUIContext().getPromptAction().showActionMenu({
+        title: '添加小票图片',
+        buttons: [
+          { text: '当场拍照', color: this.brandMain },
+          { text: '从图库选择', color: this.brandMain }
+        ]
+      });
+      let saved: string[] = [];
+      if (menu.index === 0) {
+        saved = await takeBillPhoto(context);
+      } else if (menu.index === 1) {
+        saved = await pickBillPhotos(context, remain);
+      }
       if (saved.length > 0) {
         this.selectedPhotos = [...this.selectedPhotos, ...saved];
+        // 打开小票图片优化层：可旋转/增强后再 OCR
+        this.photoEditUri = saved[0];
+        this.photoEditShow = true;
       }
     } catch (e) {
       console.error('选择账单图片失败: ' + JSON.stringify(e));
     }
+  }
+
+  // 小票 OCR：端侧识别金额/日期/商户/支付方式，弹出可编辑确认层，用户核对后再填入表单
+  async fillFromOcr(photoUri: string) {
+    if (this.ocrRunning) {
+      return;
+    }
+    this.ocrRunning = true;
+    try {
+      const info: OcrBillInfo | null = await recognizeBillInfo(photoUri);
+      if (info === null) {
+        this.getUIContext().getPromptAction().showToast({ message: '小票识别失败，请手动填写', duration: 2000 });
+        return;
+      }
+      // 清空上次编辑态后回填本次识别结果
+      this.ocrEditAmount = '';
+      this.ocrEditName = '';
+      this.ocrEditHasDate = false;
+      this.ocrEditDateMs = this.selectedDate.getTime();
+      this.ocrEditSource = '';
+      let foundAny: boolean = false;
+      if (info.hasAmount) {
+        this.ocrEditAmount = info.amount.toFixed(2);
+        foundAny = true;
+      }
+      if (info.hasDate) {
+        this.ocrEditDateMs = info.dateMs;
+        this.ocrEditHasDate = true;
+        foundAny = true;
+      }
+      if (info.hasMerchant) {
+        this.ocrEditName = info.merchant;
+        foundAny = true;
+      }
+      const payment: string | null = pickPayment(info.fullText, this.sourceList);
+      if (payment !== null) {
+        this.ocrEditSource = payment;
+      }
+      if (!foundAny && payment === null) {
+        this.getUIContext().getPromptAction().showToast({ message: '未从小票识别到有效信息', duration: 2000 });
+        return;
+      }
+      this.ocrConfirmShow = true;
+    } finally {
+      this.ocrRunning = false;
+    }
+  }
+
+  // 确认 OCR 结果：把编辑后的值填入表单
+  applyOcrConfirm(): void {
+    const amountInput: string = this.ocrEditAmount.trim();
+    if (amountInput.length > 0) {
+      const amount: number = Number(amountInput);
+      if (!Number.isNaN(amount) && amount > 0) {
+        this.inputAmount = amount.toFixed(2);
+      }
+    }
+    const nameInput: string = this.ocrEditName.trim();
+    if (nameInput.length > 0) {
+      this.inputName = nameInput;
+    }
+    if (this.ocrEditHasDate) {
+      this.selectedDate = new Date(this.ocrEditDateMs);
+    }
+    if (this.ocrEditSource.length > 0 && this.sourceList.indexOf(this.ocrEditSource) !== -1) {
+      this.selectedSource = this.ocrEditSource;
+    }
+    this.ocrConfirmShow = false;
+  }
+
+  // 替换沙箱中的小票图片 URI（编辑后生成新文件）
+  replacePhotoUri(oldUri: string, newUri: string): void {
+    this.selectedPhotos = this.selectedPhotos.map((uri: string): string => uri === oldUri ? newUri : uri);
+  }
+
+  // 小票图片优化操作：left/right 旋转 90 度，enhance 灰度增强
+  async runPhotoEdit(kind: string): Promise<void> {
+    if (this.photoEditBusy || this.photoEditUri.length === 0) {
+      return;
+    }
+    this.photoEditBusy = true;
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      let newUri: string = '';
+      if (kind === 'left') {
+        newUri = await rotateBillPhoto(context, this.photoEditUri, -90);
+      } else if (kind === 'right') {
+        newUri = await rotateBillPhoto(context, this.photoEditUri, 90);
+      } else {
+        newUri = await enhanceBillPhoto(context, this.photoEditUri);
+      }
+      if (newUri.length > 0) {
+        this.replacePhotoUri(this.photoEditUri, newUri);
+        this.photoEditUri = newUri;
+      }
+    } catch (e) {
+      console.error('小票图片处理失败: ' + JSON.stringify(e));
+      this.getUIContext().getPromptAction().showToast({ message: '图片处理失败', duration: 1500 });
+    } finally {
+      this.photoEditBusy = false;
+    }
+  }
+
+  // 完成图片优化：关闭编辑层并开始 OCR
+  finishPhotoEdit(): void {
+    this.photoEditShow = false;
+    const uri: string = this.photoEditUri;
+    this.photoEditUri = '';
+    if (uri.length > 0) {
+      this.fillFromOcr(uri);
+    }
+  }
+
+  // 跳过图片优化：保留原图且不做 OCR
+  cancelPhotoEdit(): void {
+    this.photoEditShow = false;
+    this.photoEditUri = '';
+  }
+
+  // 语音记账入口：申请麦克风权限 → 初始化端侧引擎 → 打开聆听面板
+  async startVoiceInput(): Promise<void> {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const granted: boolean = await requestMicPermission(context);
+    if (!granted) {
+      this.getUIContext().getPromptAction().showToast({ message: '需要麦克风权限才能语音记账', duration: 2000 });
+      return;
+    }
+    const ready: boolean = await this.voiceEngine.ensureEngine();
+    if (!ready) {
+      this.getUIContext().getPromptAction().showToast({ message: '语音引擎初始化失败', duration: 2000 });
+      return;
+    }
+    this.voiceText = '';
+    this.voiceListening = true;
+    this.voiceSheetShow = true;
+    this.voiceEngine.start(
+      (text: string, isLast: boolean): void => {
+        this.voiceText = text;
+      },
+      (): void => {
+        this.applyVoiceText();
+      },
+      (message: string): void => {
+        // 面板已关闭（用户取消/已应用）时忽略引擎后续回调
+        if (!this.voiceSheetShow) {
+          return;
+        }
+        this.voiceSheetShow = false;
+        this.voiceListening = false;
+        this.getUIContext().getPromptAction().showToast({ message: '语音识别失败：' + message, duration: 2000 });
+      }
+    );
+  }
+
+  // 解析语音识别文本并填入表单
+  applyVoiceText(): void {
+    if (!this.voiceSheetShow) {
+      return;
+    }
+    this.voiceListening = false;
+    const parsed: VoiceBillParse = parseVoiceBillText(this.voiceText, this.categories, this.sourceList);
+    let filled: boolean = false;
+    if (parsed.hasAmount) {
+      this.inputAmount = parsed.amount.toFixed(2);
+      filled = true;
+    }
+    if (parsed.name.length > 0) {
+      this.inputName = parsed.name;
+      filled = true;
+    }
+    if (parsed.isIncome) {
+      this.selectedType = '收入';
+    }
+    if (parsed.categoryHint.length > 0) {
+      this.selectedCategory = parsed.categoryHint;
+      filled = true;
+    }
+    if (parsed.sourceHint.length > 0) {
+      this.selectedSource = parsed.sourceHint;
+    }
+    this.voiceSheetShow = false;
+    this.getUIContext().getPromptAction().showToast({ message: filled ? '语音识别完成，请核对信息' : '没听清，再试一次吧', duration: 2000 });
+  }
+
+  // 说完了：结束录音，等待最终识别结果
+  finishVoiceInput(): void {
+    this.voiceListening = false;
+    this.voiceEngine.finishSession();
+  }
+
+  // 取消语音记账
+  cancelVoiceInput(): void {
+    this.voiceSheetShow = false;
+    this.voiceListening = false;
+    this.voiceEngine.cancelSession();
+  }
+
+  // 记地点：申请定位权限 → 获取当前位置并逆地理编码为可读地名（市/区/路）
+  async getBillLocation(): Promise<void> {
+    if (this.locationLoading) {
+      return;
+    }
+    this.locationLoading = true;
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const granted: boolean = await requestLocationPermission(context);
+      if (!granted) {
+        this.getUIContext().getPromptAction().showToast({ message: '需要定位权限才能记录消费地点', duration: 2000 });
+        return;
+      }
+      const name: string | null = await getCurrentLocationName(context);
+      if (name === null) {
+        this.getUIContext().getPromptAction().showToast({ message: '定位失败，请检查位置服务是否开启', duration: 2000 });
+        return;
+      }
+      this.selectedLocation = name;
+      hapticTick();
+    } finally {
+      this.locationLoading = false;
+    }
+  }
+
+  // 清除已记录的地点
+  clearLocation(): void {
+    this.selectedLocation = '';
+  }
+
+  closePhotoPreview(): void {
+    this.previewPhotoShow = false;
+  }
+
+  // 全屏预览小票图片，点击任意处关闭
+  @Builder
+  PhotoPreviewBuilder() {
+    Column() {
+      Image(this.previewPhotoUri)
+        .objectFit(ImageFit.Contain)
+        .width('100%')
+        .height('100%')
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('rgba(0,0,0,0.92)')
+    .justifyContent(FlexAlign.Center)
+    .onClick(() => { this.closePhotoPreview(); })
+  }
+
+  // OCR 识别结果确认层：识别值可编辑，核对后再填入表单
+  @Builder
+  OcrConfirmBuilder() {
+    Column({ space: 14 }) {
+      Text('小票识别结果')
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+      Text('识别可能有误，请核对修改后再填入')
+        .fontSize(12)
+        .fontColor($r('app.color.text_secondary'))
+
+      TextInput({ placeholder: '金额', text: this.ocrEditAmount })
+        .type(InputType.NUMBER_DECIMAL)
+        .fontColor($r('app.color.text_primary'))
+        .width('100%')
+        .backgroundColor($r('app.color.card_bg'))
+        .borderRadius(12)
+        .borderColor($r('app.color.border_color'))
+        .borderWidth(1)
+        .padding({ left: 16, right: 16 })
+        .height(44)
+        .fontSize(15)
+        .onChange((val: string) => { this.ocrEditAmount = val; })
+
+      TextInput({ placeholder: '用途 / 商户', text: this.ocrEditName })
+        .fontColor($r('app.color.text_primary'))
+        .width('100%')
+        .backgroundColor($r('app.color.card_bg'))
+        .borderRadius(12)
+        .borderColor($r('app.color.border_color'))
+        .borderWidth(1)
+        .padding({ left: 16, right: 16 })
+        .height(44)
+        .fontSize(15)
+        .onChange((val: string) => { this.ocrEditName = val; })
+
+      Row() {
+        Text('日期：')
+          .fontSize(15)
+          .fontColor($r('app.color.text_secondary'))
+        DatePicker({ selected: new Date(this.ocrEditDateMs) })
+          .onChange((value: DatePickerResult) => {
+            const year = value.year ?? new Date().getFullYear();
+            const month = value.month ?? new Date().getMonth();
+            const day = value.day ?? new Date().getDate();
+            this.ocrEditDateMs = new Date(year, month, day).getTime();
+            this.ocrEditHasDate = true;
+          })
+          .layoutWeight(1)
+      }
+      .width('100%')
+
+      Flex({ wrap: FlexWrap.Wrap }) {
+        ForEach(this.sourceList, (source: string) => {
+          Button(source)
+            .type(ButtonType.Capsule)
+            .backgroundColor(this.ocrEditSource === source ? this.brandMain : $r('app.color.category_btn_bg'))
+            .fontColor(this.ocrEditSource === source ? $r('app.color.text_white') : $r('app.color.text_primary'))
+            .borderColor(this.ocrEditSource === source ? this.brandMain : 'transparent')
+            .borderWidth(1)
+            .padding({ left: 14, right: 14 })
+            .height(32)
+            .fontSize(13)
+            .margin({ right: 6, bottom: 6 })
+            .onClick(() => {
+              hapticTick();
+              this.ocrEditSource = source;
+            })
+        }, (source: string) => source)
+      }
+      .width('100%')
+
+      Row({ space: 10 }) {
+        Button('放弃')
+          .layoutWeight(1)
+          .height(42)
+          .fontSize(15)
+          .backgroundColor($r('app.color.card_bg'))
+          .fontColor($r('app.color.text_secondary'))
+          .borderRadius(21)
+          .onClick(() => { this.ocrConfirmShow = false; })
+        Button('确认填入')
+          .layoutWeight(1)
+          .height(42)
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .backgroundColor(this.brandMain)
+          .fontColor($r('app.color.text_white'))
+          .borderRadius(21)
+          .onClick(() => {
+            hapticTick();
+            this.applyOcrConfirm();
+          })
+      }
+      .width('100%')
+      .margin({ top: 4 })
+    }
+    .padding({ left: 20, right: 20, top: 20, bottom: 24 })
+  }
+
+  // 小票图片优化层：旋转 / 增强对比度，提高 OCR 识别率
+  @Builder
+  PhotoEditBuilder() {
+    Column({ space: 14 }) {
+      Text('优化小票图片')
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+      Text('旋转歪斜小票或增强对比度，可提高识别率')
+        .fontSize(12)
+        .fontColor($r('app.color.text_secondary'))
+
+      if (this.photoEditBusy) {
+        LoadingProgress()
+          .width(28)
+          .height(28)
+          .color(this.brandMain)
+      } else {
+        Image(this.photoEditUri)
+          .objectFit(ImageFit.Contain)
+          .width('100%')
+          .height(260)
+          .borderRadius(12)
+          .backgroundColor($r('app.color.card_bg'))
+      }
+
+      Row({ space: 10 }) {
+        Button('左转 90°')
+          .layoutWeight(1)
+          .height(40)
+          .fontSize(14)
+          .backgroundColor($r('app.color.card_bg'))
+          .fontColor($r('app.color.text_primary'))
+          .borderRadius(20)
+          .border({ width: 1, color: $r('app.color.border_color') })
+          .enabled(!this.photoEditBusy)
+          .onClick(() => { this.runPhotoEdit('left'); })
+        Button('右转 90°')
+          .layoutWeight(1)
+          .height(40)
+          .fontSize(14)
+          .backgroundColor($r('app.color.card_bg'))
+          .fontColor($r('app.color.text_primary'))
+          .borderRadius(20)
+          .border({ width: 1, color: $r('app.color.border_color') })
+          .enabled(!this.photoEditBusy)
+          .onClick(() => { this.runPhotoEdit('right'); })
+        Button('增强对比')
+          .layoutWeight(1)
+          .height(40)
+          .fontSize(14)
+          .backgroundColor($r('app.color.card_bg'))
+          .fontColor($r('app.color.text_primary'))
+          .borderRadius(20)
+          .border({ width: 1, color: $r('app.color.border_color') })
+          .enabled(!this.photoEditBusy)
+          .onClick(() => { this.runPhotoEdit('enhance'); })
+      }
+      .width('100%')
+
+      Row({ space: 10 }) {
+        Button('取消')
+          .layoutWeight(1)
+          .height(42)
+          .fontSize(15)
+          .backgroundColor($r('app.color.card_bg'))
+          .fontColor($r('app.color.text_secondary'))
+          .borderRadius(21)
+          .onClick(() => { this.cancelPhotoEdit(); })
+        Button('完成，开始识别')
+          .layoutWeight(2)
+          .height(42)
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .backgroundColor(this.brandMain)
+          .fontColor($r('app.color.text_white'))
+          .borderRadius(21)
+          .onClick(() => {
+            hapticTick();
+            this.finishPhotoEdit();
+          })
+      }
+      .width('100%')
+    }
+    .padding({ left: 20, right: 20, top: 20, bottom: 24 })
+  }
+
+  // 语音记账聆听层：实时显示识别文本
+  @Builder
+  VoiceInputBuilder() {
+    Column({ space: 18 }) {
+      SymbolGlyph($r('sys.symbol.mic'))
+        .fontSize(44)
+        .fontColor([this.brandMain])
+      Text(this.voiceListening ? '正在聆听，请说出账单内容' : '识别中…')
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.text_primary'))
+      Text(this.voiceText.length > 0 ? this.voiceText : '例如：午饭花了25块')
+        .fontSize(14)
+        .fontColor(this.voiceText.length > 0 ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
+        .textAlign(TextAlign.Center)
+        .padding({ left: 12, right: 12 })
+      if (this.voiceListening) {
+        Row({ space: 10 }) {
+          Button('取消')
+            .layoutWeight(1)
+            .height(42)
+            .fontSize(15)
+            .backgroundColor($r('app.color.card_bg'))
+            .fontColor($r('app.color.text_secondary'))
+            .borderRadius(21)
+            .onClick(() => { this.cancelVoiceInput(); })
+          Button('说完了')
+            .layoutWeight(1)
+            .height(42)
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .backgroundColor(this.brandMain)
+            .fontColor($r('app.color.text_white'))
+            .borderRadius(21)
+            .onClick(() => { this.finishVoiceInput(); })
+        }
+        .width('100%')
+      }
+    }
+    .padding({ left: 20, right: 20, top: 32, bottom: 32 })
   }
 
   removePhoto(index: number) {
@@ -206,6 +797,84 @@ struct AddBillSheetContent {
     if (!this.submitted && this.selectedPhotos.length > 0) {
       deleteBillPhotos(this.selectedPhotos);
     }
+    // 释放端侧语音识别引擎
+    this.voiceEngine.shutdownEngine();
+    // 未保存关闭且有填过内容：自动暂存草稿（下次打开直接恢复）
+    if (!this.savedThisSession && this.draftHasContent()) {
+      this.saveBillDraft();
+    }
+  }
+
+  // ---------- 记账草稿：未保存关闭自动暂存，下次打开直接恢复 ----------
+  // 表单是否有用户填过的内容（与「打开即默认」状态对比；来源不参与判断，来源列表异步加载会改默认值）
+  private draftHasContent(): boolean {
+    const today: Date = new Date();
+    const dateChanged: boolean = this.selectedDate.getFullYear() !== today.getFullYear() ||
+      this.selectedDate.getMonth() !== today.getMonth() ||
+      this.selectedDate.getDate() !== today.getDate();
+    const defaultCategory: string = this.categories.length > 0 ? this.categories[0] : '其他';
+    return this.inputName.length > 0 || this.inputAmount.length > 0 ||
+      this.selectedTags.length > 0 || this.selectedLocation.length > 0 ||
+      this.selectedType !== '支出' || dateChanged || this.selectedCategory !== defaultCategory;
+  }
+
+  private async saveBillDraft(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const prefs = await dataPreferences.getPreferences(context, 'bill_data');
+      const draft: BillAddDraft = {
+        name: this.inputName,
+        amount: this.inputAmount,
+        dateMs: this.selectedDate.getTime(),
+        category: this.selectedCategory,
+        type: this.selectedType,
+        source: this.selectedSource,
+        tags: this.selectedTags,
+        location: this.selectedLocation,
+        savedAt: Date.now()
+      };
+      await prefs.put('bill_add_draft', JSON.stringify(draft));
+      await prefs.flush();
+    } catch (e) {
+      console.error('保存记账草稿失败', e);
+    }
+  }
+
+  private async restoreBillDraft(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const prefs = await dataPreferences.getPreferences(context, 'bill_data');
+      const raw = await prefs.get('bill_add_draft', '') as string;
+      if (raw.length === 0) {
+        return;
+      }
+      // 取出即删：本次若又未保存关闭，aboutToDisappear 会按最新内容重新写入
+      await prefs.delete('bill_add_draft');
+      await prefs.flush();
+      const draft = JSON.parse(raw) as BillAddDraft;
+      this.inputName = draft.name;
+      this.inputAmount = draft.amount;
+      this.selectedDate = new Date(draft.dateMs);
+      this.selectedCategory = draft.category;
+      this.selectedType = draft.type === '收入' ? '收入' : '支出';
+      this.selectedSource = draft.source;
+      this.selectedTags = draft.tags ? draft.tags : [];
+      this.selectedLocation = draft.location ? draft.location : '';
+    } catch (e) {
+      console.error('恢复记账草稿失败', e);
+    }
+  }
+
+  // ---------- 金额计算器：四则运算结果回填 ----------
+  @Builder
+  CalcBuilder() {
+    CalculatorSheet({
+      initialExpr: this.inputAmount,
+      onConfirm: (value: number) => {
+        this.inputAmount = formatCalcAmount(value);
+        this.calcSheetShow = false;
+      }
+    })
   }
 
 
@@ -255,8 +924,14 @@ struct AddBillSheetContent {
     if (this.categories.length > 0) {
       this.selectedCategory = this.categories[0];
     }
+    // 剪贴板金额识别等场景带入的预填金额
+    if (this.presetAmount.length > 0) {
+      this.inputAmount = this.presetAmount;
+    }
     this.loadSources();
     this.loadTags();  // ✅ 新增
+    // 未保存关闭的草稿直接恢复（优先级高于剪贴板预填金额）
+    this.restoreBillDraft();
   }
 
   async loadSources() {
@@ -284,6 +959,58 @@ struct AddBillSheetContent {
         .fontColor($r('app.color.text_primary'))
         .margin({ top: 24, bottom: 20 })
         .alignSelf(ItemAlign.Start)
+        .bindSheet(!!this.ocrConfirmShow, this.OcrConfirmBuilder(), { detents: [SheetSize.MEDIUM, SheetSize.LARGE] })
+
+      // 拍小票/选小票图 → 优化图片 → 端侧 OCR 可编辑确认填单；语音记账 → 说话自动填单
+      Row({ space: 10 }) {
+        if (this.selectedPhotos.length < MAX_BILL_PHOTOS) {
+          Button() {
+            Row() {
+              SymbolGlyph($r('sys.symbol.camera'))
+                .fontSize(16)
+                .fontColor([$r('app.color.text_white')])
+              Text(this.ocrRunning ? '正在识别小票…' : '拍小票自动记账')
+                .fontSize(14)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_white'))
+                .margin({ left: 6 })
+              if (this.ocrRunning) {
+                LoadingProgress()
+                  .width(14)
+                  .height(14)
+                  .margin({ left: 6 })
+                  .color($r('app.color.text_white'))
+              }
+            }
+          }
+          .type(ButtonType.Capsule)
+          .backgroundColor(this.brandMain)
+          .height(40)
+          .padding({ left: 20, right: 20 })
+          .onClick(() => { this.choosePhotos(); })
+        }
+        Button() {
+          Row() {
+            SymbolGlyph($r('sys.symbol.mic'))
+              .fontSize(16)
+              .fontColor([this.brandMain])
+            Text('语音记账')
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.brandMain)
+              .margin({ left: 6 })
+          }
+        }
+        .type(ButtonType.Capsule)
+        .backgroundColor($r('app.color.card_bg'))
+        .border({ width: 1, color: this.brandMain })
+        .height(40)
+        .padding({ left: 20, right: 20 })
+        .bindSheet(!!this.voiceSheetShow, this.VoiceInputBuilder(), { detents: [SheetSize.MEDIUM, SheetSize.LARGE] })
+        .onClick(() => { this.startVoiceInput(); })
+      }
+      .margin({ bottom: 16 })
+      .alignSelf(ItemAlign.Start)
 
       Scroll() {
         Column() {
@@ -305,7 +1032,7 @@ struct AddBillSheetContent {
           .width('100%')
           .margin({ bottom: 12 })
 
-          TextInput({ placeholder: '用途（如：午餐）' })
+          TextInput({ placeholder: '用途（如：午餐）', text: this.inputName })
             .fontColor($r('app.color.text_primary'))
             .width('100%')
             .backgroundColor($r('app.color.card_bg'))
@@ -318,19 +1045,35 @@ struct AddBillSheetContent {
             .onChange((val: string) => { this.inputName = val; })
             .margin({ bottom: 12 })
 
-          TextInput({ placeholder: '金额' })
-            .fontColor($r('app.color.text_primary'))
-            .width('100%')
-            .backgroundColor($r('app.color.card_bg'))
+          Row({ space: 8 }) {
+            TextInput({ placeholder: '金额', text: this.inputAmount })
+              .fontColor($r('app.color.text_primary'))
+              .backgroundColor($r('app.color.card_bg'))
+              .borderRadius(12)
+              .borderColor($r('app.color.border_color'))
+              .borderWidth(1)
+              .padding({ left: 16, right: 16 })
+              .height(44)
+              .fontSize(15)
+              .type(InputType.NUMBER_DECIMAL)
+              .onChange((val: string) => { this.inputAmount = val; })
+              .layoutWeight(1)
+
+            // 计算器：金额支持四则运算（如 12+8），算完回填
+            Button() {
+              SymbolGlyph($r('sys.symbol.calculator'))
+                .fontSize(20)
+                .fontColor([this.brandMain])
+            }
+            .backgroundColor($r('app.color.category_btn_bg'))
             .borderRadius(12)
-            .borderColor($r('app.color.border_color'))
-            .borderWidth(1)
-            .padding({ left: 16, right: 16 })
+            .width(44)
             .height(44)
-            .fontSize(15)
-            .type(InputType.NUMBER_DECIMAL)
-            .onChange((val: string) => { this.inputAmount = val; })
-            .margin({ bottom: 12 })
+            .onClick(() => { this.calcSheetShow = true; })
+          }
+          .width('100%')
+          .margin({ bottom: 12 })
+          .bindSheet(!!this.calcSheetShow, this.CalcBuilder(), { detents: [SheetSize.MEDIUM, SheetSize.LARGE] })
 
           // 分类
           Column() {
@@ -408,6 +1151,67 @@ struct AddBillSheetContent {
               }, (source: string) => source)
             }
             .width('100%')
+          }
+          .width('100%')
+          .margin({ bottom: 12 })
+
+          // 地点（消费地点记录）
+          Column() {
+            Row() {
+              Text('地点')
+                .fontSize(14)
+                .fontColor($r('app.color.text_secondary'))
+                .layoutWeight(1)
+
+              if (this.locationLoading) {
+                Row() {
+                  LoadingProgress()
+                    .width(14)
+                    .height(14)
+                    .color(this.brandMain)
+                  Text('定位中…')
+                    .fontSize(13)
+                    .fontColor($r('app.color.text_secondary'))
+                    .margin({ left: 4 })
+                }
+              } else {
+                Button(this.selectedLocation.length > 0 ? '重新定位' : '记地点')
+                  .type(ButtonType.Capsule)
+                  .backgroundColor($r('app.color.category_btn_bg'))
+                  .fontColor(this.brandMain)
+                  .border({ width: 1, color: this.brandMain })
+                  .height(30)
+                  .padding({ left: 14, right: 14 })
+                  .fontSize(13)
+                  .onClick(() => { this.getBillLocation(); })
+              }
+            }
+            .width('100%')
+            .margin({ bottom: 8 })
+
+            if (this.selectedLocation.length > 0) {
+              Row() {
+                SymbolGlyph($r('sys.symbol.mappin_and_rectangle'))
+                  .fontSize(13)
+                  .fontColor([this.brandMain])
+                Text(this.selectedLocation)
+                  .fontSize(13)
+                  .fontColor($r('app.color.text_primary'))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+                  .margin({ left: 4, right: 4 })
+                SymbolGlyph($r('sys.symbol.xmark'))
+                  .fontSize(12)
+                  .fontColor([$r('app.color.text_secondary')])
+                  .onClick(() => { this.clearLocation(); })
+              }
+              .padding({ left: 12, right: 10, top: 5, bottom: 5 })
+              .backgroundColor($r('app.color.category_btn_bg'))
+              .borderRadius(12)
+              .alignSelf(ItemAlign.Start)
+              .constraintSize({ maxWidth: '100%' })
+            }
           }
           .width('100%')
           .margin({ bottom: 12 })
@@ -507,11 +1311,23 @@ struct AddBillSheetContent {
 
           // 小票图片
           Column() {
-            Text(`小票图片（最多${MAX_BILL_PHOTOS}张）`)
-              .fontSize(14)
-              .fontColor($r('app.color.text_secondary'))
-              .alignSelf(ItemAlign.Start)
-              .margin({ bottom: 8 })
+            Row() {
+              Text(`小票图片（最多${MAX_BILL_PHOTOS}张）`)
+                .fontSize(14)
+                .fontColor($r('app.color.text_secondary'))
+              if (this.ocrRunning) {
+                LoadingProgress()
+                  .width(14)
+                  .height(14)
+                  .margin({ left: 8 })
+                  .color($r('app.color.text_secondary'))
+                Text('识别中…')
+                  .fontSize(12)
+                  .fontColor($r('app.color.text_secondary'))
+              }
+            }
+            .alignSelf(ItemAlign.Start)
+            .margin({ bottom: 8 })
 
             Flex({ wrap: FlexWrap.Wrap }) {
               ForEach(this.selectedPhotos, (uri: string, idx: number) => {
@@ -535,6 +1351,10 @@ struct AddBillSheetContent {
                   .onClick(() => { this.removePhoto(idx); })
                 }
                 .margin({ right: 8, bottom: 8 })
+                .onClick(() => {
+                  this.previewPhotoUri = uri;
+                  this.previewPhotoShow = true;
+                })
               }, (uri: string) => uri)
 
               if (this.selectedPhotos.length < MAX_BILL_PHOTOS) {
@@ -553,6 +1373,10 @@ struct AddBillSheetContent {
               }
             }
             .width('100%')
+            .bindContentCover(!!this.previewPhotoShow, this.PhotoPreviewBuilder(), {
+              onDisappear: () => { this.closePhotoPreview(); }
+            })
+            .bindSheet(!!this.photoEditShow, this.PhotoEditBuilder(), { detents: [SheetSize.MEDIUM, SheetSize.LARGE] })
           }
           .width('100%')
           .margin({ bottom: 12 })
@@ -683,9 +1507,11 @@ struct AddBillSheetContent {
       this.selectedCategory,
       this.selectedSource,
       this.selectedTags,
-      this.selectedPhotos
+      this.selectedPhotos,
+      this.selectedLocation
     );
     this.submitted = true;
+    this.savedThisSession = true;
     this.onClose();
   }
 }
@@ -705,9 +1531,10 @@ struct EditBillSheetContent {
   @Param paramDate: Date = new Date();
   @Param paramCategory: string = '其他';
   @Param paramSource: string = '现金';
-  @Param onUpdateBill: (id: number, name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[], photos: string[]) => void = () => {};
+  @Param onUpdateBill: (id: number, name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[], photos: string[], location: string) => void = () => {};
   @Param paramTags: string[] = [];
   @Param paramPhotoUris: string[] = [];
+  @Param paramLocation: string = '';  // 账单原消费地点（空串表示没有）
   // 当前账本的分类列表（由父组件传入）
   @Param categories: string[] = ['其他'];
 
@@ -722,9 +1549,15 @@ struct EditBillSheetContent {
   @Local selectedTags: string[] = [];
   @Local availableTags: string[] = [];
   @Local internalPhotos: string[] = [];
+  // 消费地点记录：定位 + 逆地理编码得到的可读地名
+  @Local internalLocation: string = '';
+  @Local locationLoading: boolean = false;
+  @Local previewPhotoUri: string = '';  // 全屏预览的小票图片
+  @Local previewPhotoShow: boolean = false;  // 全屏预览显隐
   @Local pressedChipKey: string = '';  // 按压中的胶囊按钮 key（Q弹缩放反馈）
   @Local cancelBtnScale: number = 1;  // 取消按钮按压缩放
   @Local confirmBtnScale: number = 1;  // 保存按钮按压缩放
+  @Local calcSheetShow: boolean = false;  // 金额计算器弹层显隐
   submitted: boolean = false;
 
   aboutToAppear() {
@@ -743,6 +1576,7 @@ struct EditBillSheetContent {
     this.internalSource = this.paramSource || '现金';
     this.selectedTags = this.paramTags ? [...this.paramTags] : [];
     this.internalPhotos = this.paramPhotoUris ? [...this.paramPhotoUris] : [];
+    this.internalLocation = this.paramLocation;
     this.loadSources();
     this.loadTags();
   }
@@ -756,12 +1590,39 @@ struct EditBillSheetContent {
     }
   }
 
-  // 从相册选择小票图片（拷贝到应用沙箱）
+  // 金额计算器：四则运算结果回填（编辑表单）
+  @Builder
+  CalcBuilder() {
+    CalculatorSheet({
+      initialExpr: this.internalAmount,
+      onConfirm: (value: number) => {
+        this.internalAmount = formatCalcAmount(value);
+        this.calcSheetShow = false;
+      }
+    })
+  }
+
+  // 添加小票图片：先弹菜单选择「当场拍照」或「从图库选择」，成功后拷贝到应用沙箱
   async choosePhotos() {
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const remain = MAX_BILL_PHOTOS - this.internalPhotos.length;
-      const saved = await pickBillPhotos(context, remain);
+      if (remain <= 0) {
+        return;
+      }
+      const menu = await this.getUIContext().getPromptAction().showActionMenu({
+        title: '添加小票图片',
+        buttons: [
+          { text: '当场拍照', color: this.brandMain },
+          { text: '从图库选择', color: this.brandMain }
+        ]
+      });
+      let saved: string[] = [];
+      if (menu.index === 0) {
+        saved = await takeBillPhoto(context);
+      } else if (menu.index === 1) {
+        saved = await pickBillPhotos(context, remain);
+      }
       if (saved.length > 0) {
         this.internalPhotos = [...this.internalPhotos, ...saved];
       }
@@ -772,6 +1633,26 @@ struct EditBillSheetContent {
 
   removePhoto(index: number) {
     this.internalPhotos = this.internalPhotos.filter((v: string, i: number): boolean => i !== index);
+  }
+
+  closePhotoPreview(): void {
+    this.previewPhotoShow = false;
+  }
+
+  // 全屏预览小票图片，点击任意处关闭
+  @Builder
+  PhotoPreviewBuilder() {
+    Column() {
+      Image(this.previewPhotoUri)
+        .objectFit(ImageFit.Contain)
+        .width('100%')
+        .height('100%')
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('rgba(0,0,0,0.92)')
+    .justifyContent(FlexAlign.Center)
+    .onClick(() => { this.closePhotoPreview(); })
   }
 
   async loadSources() {
@@ -874,19 +1755,35 @@ struct EditBillSheetContent {
             .onChange((val: string) => { this.internalName = val; })
             .margin({ bottom: 12 })
 
-          TextInput({ placeholder: '金额', text: this.internalAmount })
-            .fontColor($r('app.color.text_primary'))
-            .width('100%')
-            .backgroundColor($r('app.color.card_bg'))
+          Row({ space: 8 }) {
+            TextInput({ placeholder: '金额', text: this.internalAmount })
+              .fontColor($r('app.color.text_primary'))
+              .backgroundColor($r('app.color.card_bg'))
+              .borderRadius(12)
+              .borderColor($r('app.color.border_color'))
+              .borderWidth(1)
+              .padding({ left: 16, right: 16 })
+              .height(44)
+              .fontSize(15)
+              .type(InputType.NUMBER_DECIMAL)
+              .onChange((val: string) => { this.internalAmount = val; })
+              .layoutWeight(1)
+
+            // 计算器：金额支持四则运算（如 12+8），算完回填
+            Button() {
+              SymbolGlyph($r('sys.symbol.calculator'))
+                .fontSize(20)
+                .fontColor([this.brandMain])
+            }
+            .backgroundColor($r('app.color.category_btn_bg'))
             .borderRadius(12)
-            .borderColor($r('app.color.border_color'))
-            .borderWidth(1)
-            .padding({ left: 16, right: 16 })
+            .width(44)
             .height(44)
-            .fontSize(15)
-            .type(InputType.NUMBER_DECIMAL)
-            .onChange((val: string) => { this.internalAmount = val; })
-            .margin({ bottom: 12 })
+            .onClick(() => { this.calcSheetShow = true; })
+          }
+          .width('100%')
+          .margin({ bottom: 12 })
+          .bindSheet(!!this.calcSheetShow, this.CalcBuilder(), { detents: [SheetSize.MEDIUM, SheetSize.LARGE] })
 
           // 分类
           Column() {
@@ -967,6 +1864,68 @@ struct EditBillSheetContent {
           }
           .width('100%')
           .margin({ bottom: 12 })
+
+          // 地点（消费地点记录）
+          Column() {
+            Row() {
+              Text('地点')
+                .fontSize(14)
+                .fontColor($r('app.color.text_secondary'))
+                .layoutWeight(1)
+
+              if (this.locationLoading) {
+                Row() {
+                  LoadingProgress()
+                    .width(14)
+                    .height(14)
+                    .color(this.brandMain)
+                  Text('定位中…')
+                    .fontSize(13)
+                    .fontColor($r('app.color.text_secondary'))
+                    .margin({ left: 4 })
+                }
+              } else {
+                Button(this.internalLocation.length > 0 ? '重新定位' : '记地点')
+                  .type(ButtonType.Capsule)
+                  .backgroundColor($r('app.color.category_btn_bg'))
+                  .fontColor(this.brandMain)
+                  .border({ width: 1, color: this.brandMain })
+                  .height(30)
+                  .padding({ left: 14, right: 14 })
+                  .fontSize(13)
+                  .onClick(() => { this.getBillLocation(); })
+              }
+            }
+            .width('100%')
+            .margin({ bottom: 8 })
+
+            if (this.internalLocation.length > 0) {
+              Row() {
+                SymbolGlyph($r('sys.symbol.mappin_and_rectangle'))
+                  .fontSize(13)
+                  .fontColor([this.brandMain])
+                Text(this.internalLocation)
+                  .fontSize(13)
+                  .fontColor($r('app.color.text_primary'))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+                  .margin({ left: 4, right: 4 })
+                SymbolGlyph($r('sys.symbol.xmark'))
+                  .fontSize(12)
+                  .fontColor([$r('app.color.text_secondary')])
+                  .onClick(() => { this.clearLocation(); })
+              }
+              .padding({ left: 12, right: 10, top: 5, bottom: 5 })
+              .backgroundColor($r('app.color.category_btn_bg'))
+              .borderRadius(12)
+              .alignSelf(ItemAlign.Start)
+              .constraintSize({ maxWidth: '100%' })
+            }
+          }
+          .width('100%')
+          .margin({ bottom: 12 })
+
           Column() {
             Text('标签')
               .fontSize(14)
@@ -1086,6 +2045,10 @@ struct EditBillSheetContent {
                   .onClick(() => { this.removePhoto(idx); })
                 }
                 .margin({ right: 8, bottom: 8 })
+                .onClick(() => {
+                  this.previewPhotoUri = uri;
+                  this.previewPhotoShow = true;
+                })
               }, (uri: string) => uri)
 
               if (this.internalPhotos.length < MAX_BILL_PHOTOS) {
@@ -1104,6 +2067,9 @@ struct EditBillSheetContent {
               }
             }
             .width('100%')
+            .bindContentCover(!!this.previewPhotoShow, this.PhotoPreviewBuilder(), {
+              onDisappear: () => { this.closePhotoPreview(); }
+            })
           }
           .width('100%')
           .margin({ bottom: 12 })
@@ -1236,140 +2202,344 @@ struct EditBillSheetContent {
       this.internalCategory,
       this.internalSource,
       this.selectedTags,  // ✅ 传入标签
-      this.internalPhotos  // ✅ 传入小票图片
+      this.internalPhotos,  // ✅ 传入小票图片
+      this.internalLocation  // ✅ 传入消费地点（空串表示清除）
     );
     this.submitted = true;
     this.onClose();
   }
-}
 
-// ========== 搜索账单弹层（原生半模态 bindSheet，构建器见 Index.SearchSheetBuilder） ==========
-// V2 状态管理：@Local 内部搜索词状态 + @Param 父组件数据/回调
-@ComponentV2
-struct SearchBillSheetContent {
-  @Param onClose: () => void = () => {};
-  @Local searchText: string = '';
-  @Param bills: BillItem[] = [];
-  @Param onSelectBill: (bill: BillItem) => void = (bill: BillItem) => {};
-
-  getFilteredBills(): BillItem[] {
-    if (this.searchText.trim().length === 0) {
-      return this.bills;
+  // 记地点：申请定位权限 → 获取当前位置并逆地理编码为可读地名（市/区/路）
+  async getBillLocation(): Promise<void> {
+    if (this.locationLoading) {
+      return;
     }
-    const keyword = this.searchText.trim().toLowerCase();
-    return this.bills.filter(item =>
-    item.name.toLowerCase().includes(keyword) ||
-      item.category.toLowerCase().includes(keyword)
-    );
+    this.locationLoading = true;
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const granted: boolean = await requestLocationPermission(context);
+      if (!granted) {
+        this.getUIContext().getPromptAction().showToast({ message: '需要定位权限才能记录消费地点', duration: 2000 });
+        return;
+      }
+      const name: string | null = await getCurrentLocationName(context);
+      if (name === null) {
+        this.getUIContext().getPromptAction().showToast({ message: '定位失败，请检查位置服务是否开启', duration: 2000 });
+        return;
+      }
+      this.internalLocation = name;
+      hapticTick();
+    } finally {
+      this.locationLoading = false;
+    }
   }
 
+  // 清除已记录的地点
+  clearLocation(): void {
+    this.internalLocation = '';
+  }
+}
+
+// ========== 账单筛选弹层（类型/分类/来源/金额区间/日期范围，支持跨月） ==========
+// 构建器见 Index.BillFilterBuilder；点「应用」时经 onApply 一次性写回 Index 筛选状态
+@ComponentV2
+struct BillFilterSheetContent {
+  @Param categories: string[] = [];
+  @Param initType: string = '全部';
+  @Param initCategory: string = '全部';
+  @Param initSource: string = '全部';
+  @Param initAmountMin: string = '';
+  @Param initAmountMax: string = '';
+  @Param initDateStart: number = 0;
+  @Param initDateEnd: number = 0;
+  @Param onApply: (type: string, category: string, source: string, amountMin: string,
+    amountMax: string, dateStart: number, dateEnd: number) => void = () => {};
+  @Param onClose: () => void = () => {};
+
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+
+  @Local selType: string = '全部';
+  @Local selCategory: string = '全部';
+  @Local selSource: string = '全部';
+  @Local amountMin: string = '';
+  @Local amountMax: string = '';
+  @Local dateStart: number = 0;
+  @Local dateEnd: number = 0;
+  @Local sourceList: string[] = [];
+
+  aboutToAppear(): void {
+    this.selType = this.initType;
+    this.selCategory = this.initCategory;
+    this.selSource = this.initSource;
+    this.amountMin = this.initAmountMin;
+    this.amountMax = this.initAmountMax;
+    this.dateStart = this.initDateStart;
+    this.dateEnd = this.initDateEnd;
+    this.loadSources();
+  }
+
+  async loadSources(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const prefs = await dataPreferences.getPreferences(context, 'bill_data');
+      const data = await prefs.get('asset_categories', '[]') as string;
+      const parsed = JSON.parse(data) as AssetCategory[];
+      this.sourceList = parsed.map((item: AssetCategory) => item.name);
+    } catch (e) {
+      console.error('加载来源失败', e);
+    }
+  }
+
+  // 分类候选项：当前账本分类 + 兜底保留已选但不在列表中的分类
+  getCategoryOptions(): string[] {
+    const options: string[] = ['全部'];
+    if (this.selCategory !== '全部' && !this.categories.includes(this.selCategory)) {
+      options.push(this.selCategory);
+    }
+    for (const c of this.categories) {
+      options.push(c);
+    }
+    return options;
+  }
+
+  // 来源候选项：资产账户 + 兜底保留已选但已删除的来源
+  getSourceOptions(): string[] {
+    const options: string[] = ['全部'];
+    if (this.selSource !== '全部' && !this.sourceList.includes(this.selSource)) {
+      options.push(this.selSource);
+    }
+    for (const s of this.sourceList) {
+      options.push(s);
+    }
+    return options;
+  }
+
+  shortDate(ms: number): string {
+    const d = new Date(ms);
+    return (d.getMonth() + 1) + '.' + d.getDate();
+  }
+
+  rangeReady(): boolean {
+    return this.dateStart > 0 && this.dateEnd > 0;
+  }
+
+  // 先选起点再选终点，复用统计页嵌套日期弹窗的交互
+  pickRange(): void {
+    const ui = this.getUIContext();
+    const today = new Date();
+    ui.showDatePickerDialog({
+      start: new Date(2000, 0, 1),
+      end: today,
+      selected: this.dateStart > 0 ? new Date(this.dateStart) : today,
+      onDateAccept: (value: Date) => {
+        const start = new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+        ui.showDatePickerDialog({
+          start: value,
+          end: today,
+          selected: this.dateEnd > 0 && this.dateEnd >= start ? new Date(this.dateEnd) : value,
+          onDateAccept: (v2: Date) => {
+            this.dateStart = start;
+            this.dateEnd = new Date(v2.getFullYear(), v2.getMonth(), v2.getDate()).getTime();
+          }
+        });
+      }
+    });
+  }
+
+  resetAll(): void {
+    this.selType = '全部';
+    this.selCategory = '全部';
+    this.selSource = '全部';
+    this.amountMin = '';
+    this.amountMax = '';
+    this.dateStart = 0;
+    this.dateEnd = 0;
+  }
+
+  hasAnyCondition(): boolean {
+    return this.selType !== '全部' || this.selCategory !== '全部' || this.selSource !== '全部' ||
+      this.amountMin.length > 0 || this.amountMax.length > 0 || this.rangeReady();
+  }
+
+  @Builder
+  sectionLabel(label: string) {
+    Text(label)
+      .fontSize(14)
+      .fontWeight(FontWeight.Medium)
+      .fontColor($r('app.color.text_primary'))
+      .margin({ top: 20, bottom: 10 })
+  }
+
+  @Builder
+  chip(label: string, selected: boolean, onTap: () => void) {
+    Text(label)
+      .fontSize(13)
+      .fontWeight(selected ? FontWeight.Bold : FontWeight.Normal)
+      .fontColor(selected ? Color.White : $r('app.color.text_secondary'))
+      .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+      .borderRadius(16)
+      .backgroundColor(selected ? this.brandMain : $r('app.color.card_bg'))
+      .border({ width: 1, color: selected ? this.brandMain : $r('app.color.border_color') })
+      .margin({ right: 8, bottom: 8 })
+      .onClick(() => { onTap(); })
+  }
 
   build() {
     Column() {
-      Text('搜索账单')
-        .fontSize(20)
-        .fontWeight(FontWeight.Bold)
-        .fontColor($r('app.color.text_primary'))
-        .alignSelf(ItemAlign.Start)
-        .margin({ top: 24, bottom: 20 })
-
-      TextInput({ placeholder: '输入用途或分类关键词' })
-        .width('100%')
-        .height(44)
-        .fontSize(16)
-        .borderRadius(12)
-        .backgroundColor($r('app.color.card_bg'))
-        .borderColor($r('app.color.border_color'))
-        .borderWidth(1)
-        .padding({ left: 16, right: 16 })
-        .onChange((val: string) => {
-          this.searchText = val;
-        })
-        .margin({ bottom: 12 })
-
+      // 标题行
       Row() {
-        Text(this.searchText.trim().length > 0 ?
-          `共 ${this.getFilteredBills().length} 条结果` :
-          `共 ${this.bills.length} 笔账单`)
-          .fontSize(14)
-          .fontColor($r('app.color.text_secondary'))
+        Text('筛选账单')
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+        Blank()
+        SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
+          .fontSize(22)
+          .fontColor([$r('app.color.text_secondary')])
+          .opacity(0.6)
+          .onClick(() => { this.onClose(); })
       }
       .width('100%')
-      .margin({ bottom: 12 })
+      .margin({ top: 20, bottom: 4 })
 
-      List() {
-        ForEach(
-          this.getFilteredBills(),
-          (item: BillItem) => {
-            ListItem() {
-              Row() {
-                Column() { }
-                .width(8)
-                .height(8)
-                .borderRadius(4)
-                .backgroundColor(getCategoryColor(item.category))
-                .margin({ right: 12 })
-
-                Text(item.type)
-                  .fontSize(12)
-                  .backgroundColor(item.type === '收入' ? $r('app.color.income_tag_bg') : $r('app.color.expense_tag_bg'))
-                  .fontColor(item.type === '收入' ? $r('app.color.income_tag_text') : $r('app.color.expense_tag_text'))
-                  .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-                  .borderRadius(6)
-
-                Text(item.name)
-                  .fontSize(16)
-                  .fontColor($r('app.color.text_primary'))
-                  .layoutWeight(1)
-                  .margin({ left: 10 })
-
-                Text((item.type === '收入' ? '+' : '-') + item.amount.toFixed(2))
-                  .fontSize(16)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor(item.type === '收入' ? $r('app.color.income_gold') : $r('app.color.expense_red'))
-              }
-              .width('100%')
-              .padding({ top: 12, left: 16, bottom: 12, right: 8 })
-              .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(12)
-              .margin({ bottom: 8 })
-            }
-            .onClick(() => {
-              if (this.onSelectBill) {
-                this.onSelectBill(item);
-              }
-              this.onClose();
-            })
-          },
-          (item: BillItem) => item.id.toString()
-        )
-
-        // 空状态：结果为空时给出提示，避免底部大片留白
-        if (this.getFilteredBills().length === 0) {
-          ListItem() {
-            Column({ space: 10 }) {
-              Text(this.searchText.trim().length > 0 ? '没有找到相关账单' : '还没有账单，去记一笔吧')
-                .fontSize(15)
-                .fontColor($r('app.color.text_secondary'))
-              Text(this.searchText.trim().length > 0 ? '换个关键词试试' : '点右下角记一笔开始记账')
-                .fontSize(12)
-                .fontColor($r('app.color.text_secondary'))
-                .opacity(0.7)
-            }
-            .width('100%')
-            .alignItems(HorizontalAlign.Center)
-            .padding({ top: 72, bottom: 24 })
+      Scroll() {
+        Column() {
+          // 类型
+          this.sectionLabel('类型')
+          Flex({ wrap: FlexWrap.Wrap }) {
+            this.chip('全部', this.selType === '全部', () => { this.selType = '全部'; })
+            this.chip('支出', this.selType === '支出', () => { this.selType = '支出'; })
+            this.chip('收入', this.selType === '收入', () => { this.selType = '收入'; })
           }
+          .width('100%')
+
+          // 分类
+          this.sectionLabel('分类')
+          Flex({ wrap: FlexWrap.Wrap }) {
+            ForEach(this.getCategoryOptions(), (c: string) => {
+              this.chip(c, this.selCategory === c, () => { this.selCategory = c; })
+            }, (c: string) => c)
+          }
+          .width('100%')
+
+          // 来源账户
+          this.sectionLabel('来源账户')
+          Flex({ wrap: FlexWrap.Wrap }) {
+            ForEach(this.getSourceOptions(), (s: string) => {
+              this.chip(s, this.selSource === s, () => { this.selSource = s; })
+            }, (s: string) => s)
+          }
+          .width('100%')
+
+          // 金额区间
+          this.sectionLabel('金额区间')
+          Row({ space: 10 }) {
+            TextInput({ placeholder: '最低金额', text: this.amountMin })
+              .type(InputType.Number)
+              .layoutWeight(1)
+              .height(40)
+              .fontSize(14)
+              .borderRadius(12)
+              .backgroundColor($r('app.color.card_bg'))
+              .border({ width: 1, color: $r('app.color.border_color') })
+              .padding({ left: 12, right: 12 })
+              .onChange((v: string) => { this.amountMin = v; })
+
+            Text('至')
+              .fontSize(13)
+              .fontColor($r('app.color.text_secondary'))
+
+            TextInput({ placeholder: '最高金额', text: this.amountMax })
+              .type(InputType.Number)
+              .layoutWeight(1)
+              .height(40)
+              .fontSize(14)
+              .borderRadius(12)
+              .backgroundColor($r('app.color.card_bg'))
+              .border({ width: 1, color: $r('app.color.border_color') })
+              .padding({ left: 12, right: 12 })
+              .onChange((v: string) => { this.amountMax = v; })
+          }
+          .width('100%')
+
+          // 日期范围（可跨月，优先于浏览月份）
+          this.sectionLabel('日期范围')
+          Row({ space: 8 }) {
+            Button(this.rangeReady() ?
+              this.shortDate(this.dateStart) + ' - ' + this.shortDate(this.dateEnd) : '选择日期范围')
+              .fontSize(13)
+              .fontColor(this.rangeReady() ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
+              .backgroundColor($r('app.color.card_bg'))
+              .border({ width: 1, color: this.rangeReady() ? this.brandMain : $r('app.color.border_color') })
+              .borderRadius(16)
+              .height(36)
+              .padding({ left: 14, right: 14 })
+              .onClick(() => { this.pickRange(); })
+
+            if (this.rangeReady()) {
+              Button() {
+                SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
+                  .fontSize(16)
+                  .fontColor([$r('app.color.text_secondary')])
+              }
+              .backgroundColor(Color.Transparent)
+              .height(36)
+              .padding({ left: 6, right: 6 })
+              .onClick(() => {
+                this.dateStart = 0;
+                this.dateEnd = 0;
+              })
+            }
+
+            Text('设置后可跨月筛选')
+              .fontSize(11)
+              .fontColor($r('app.color.text_secondary'))
+              .opacity(0.7)
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
         }
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+        .padding({ left: 4, right: 4, bottom: 12 })
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .scrollBar(BarState.Off)
+
+      // 底部按钮：重置 / 应用
+      Row({ space: 12 }) {
+        Button('重置')
+          .fontSize(15)
+          .fontColor($r('app.color.text_primary'))
+          .backgroundColor($r('app.color.card_bg'))
+          .border({ width: 1, color: $r('app.color.border_color') })
+          .borderRadius(24)
+          .height(44)
+          .padding({ left: 24, right: 24 })
+          .onClick(() => { this.resetAll(); })
+
+        Button('应用')
+          .fontSize(15)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Color.White)
+          .backgroundColor(this.brandMain)
+          .borderRadius(24)
+          .height(44)
+          .layoutWeight(1)
+          .onClick(() => {
+            this.onApply(this.selType, this.selCategory, this.selSource, this.amountMin,
+              this.amountMax, this.dateStart, this.dateEnd);
+            this.onClose();
+          })
       }
       .width('100%')
-      .layoutWeight(1)
-      .backgroundColor(Color.Transparent)
-      .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+      .padding({ top: 12, bottom: 30 })
     }
     .width('100%')
     .height('100%')
-    .padding({ left: 20, right: 20, bottom: 8 })
+    .padding({ left: 20, right: 20 })
   }
 }
 
@@ -1486,6 +2656,24 @@ struct BillDetailDialog {
         .fontColor(this.bill.type === '收入' ? $r('app.color.income_gold') : $r('app.color.expense_red'))
         .alignSelf(ItemAlign.End)
         .margin({ bottom: 4 })
+
+      // 消费地点（记一笔时「记地点」记录的逆地理编码地名）
+      if (this.bill.locationName !== undefined && this.bill.locationName.length > 0) {
+        Row() {
+          SymbolGlyph($r('sys.symbol.mappin_and_rectangle'))
+            .fontSize(13)
+            .fontColor([$r('app.color.text_secondary')])
+          Text(this.bill.locationName)
+            .fontSize(13)
+            .fontColor($r('app.color.text_secondary'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .constraintSize({ maxWidth: '70%' })
+            .margin({ left: 4 })
+        }
+        .alignSelf(ItemAlign.End)
+        .margin({ bottom: 4 })
+      }
 
       if (this.bill.refundAmount !== undefined && this.bill.refundAmount > 0) {
         Text('原支付 ¥' + (this.bill.originalAmount !== undefined ? this.bill.originalAmount : this.bill.amount + this.bill.refundAmount).toFixed(2) +
@@ -1828,6 +3016,295 @@ struct ExportConfirmDialog {
     .backgroundColor($r('app.color.glass_bg'))
     .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
     .borderRadius(24)
+  }
+}
+
+// ========== 报销包导出弹层（多选支出账单，清单 CSV + 小票图片打包 zip 分享，构建器见 Index.ExpensePackSheetBuilder） ==========
+// 账单懒加载数据源：配合 List + LazyForEach 只创建可见行，
+// 避免账单多时 ForEach 全量渲染导致弹层打开卡顿
+class ExpensePackDataSource implements IDataSource {
+  private items: BillItem[] = [];
+  private listeners: DataChangeListener[] = [];
+
+  setItems(items: BillItem[]): void {
+    this.items = items;
+    this.listeners.forEach((listener: DataChangeListener) => {
+      listener.onDataReloaded();
+    });
+  }
+
+  totalCount(): number {
+    return this.items.length;
+  }
+
+  getData(index: number): BillItem {
+    return this.items[index];
+  }
+
+  registerDataChangeListener(listener: DataChangeListener): void {
+    if (this.listeners.indexOf(listener) === -1) {
+      this.listeners.push(listener);
+    }
+  }
+
+  unregisterDataChangeListener(listener: DataChangeListener): void {
+    const pos: number = this.listeners.indexOf(listener);
+    if (pos !== -1) {
+      this.listeners.splice(pos, 1);
+    }
+  }
+}
+
+// V2 状态管理：@Local 内部多选状态 + @Param 父组件数据/回调 + @Computed 全局信号
+@ComponentV2
+struct ExpensePackSheetContent {
+  @Local brandSignals: BrandSignals = BrandSignals.connect();
+  @Computed get brandMain(): string { return this.brandSignals.main; }
+  @Param onClose: () => void = () => {};
+  // 待选的支出账单（父组件传入，已按日期倒序）
+  @Param bills: BillItem[] = [];
+  @Param onExport: (ids: number[], format: string) => void = () => {};
+  @Local selectedIds: number[] = [];  // 已勾选的账单 id
+  @Local dataSource: ExpensePackDataSource = new ExpensePackDataSource();  // 列表懒加载数据源
+  @Local exportFormat: string = 'zip';  // 导出格式：zip 压缩包 / png 长图 / pdf 报销单
+
+  aboutToAppear(): void {
+    this.dataSource.setItems(this.bills);
+  }
+
+  isSelected(id: number): boolean {
+    return this.selectedIds.indexOf(id) !== -1;
+  }
+
+  toggleSelect(id: number): void {
+    if (this.isSelected(id)) {
+      this.selectedIds = this.selectedIds.filter((v: number): boolean => v !== id);
+    } else {
+      this.selectedIds = [...this.selectedIds, id];
+    }
+    hapticTick();
+  }
+
+  isAllSelected(): boolean {
+    return this.bills.length > 0 && this.selectedIds.length === this.bills.length;
+  }
+
+  toggleSelectAll(): void {
+    if (this.isAllSelected()) {
+      this.selectedIds = [];
+    } else {
+      this.selectedIds = this.bills.map((b: BillItem): number => b.id);
+    }
+    hapticTick();
+  }
+
+  // 已勾选账单的合计金额
+  getSelectedTotal(): number {
+    let total: number = 0;
+    this.bills.forEach((b: BillItem) => {
+      if (this.isSelected(b.id)) {
+        total += b.amount;
+      }
+    });
+    return total;
+  }
+
+  formatDate(timestamp: number): string {
+    const d = new Date(timestamp);
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
+  confirmExport(): void {
+    if (this.selectedIds.length === 0) {
+      this.getUIContext().getPromptAction().showToast({ message: '请先勾选要报销的账单', duration: 1500 });
+      return;
+    }
+    this.onExport([...this.selectedIds], this.exportFormat);
+  }
+
+  // 格式说明文案
+  getFormatHint(): string {
+    if (this.exportFormat === 'png') {
+      return '生成一张报销明细长图，方便直接发到聊天里';
+    }
+    if (this.exportFormat === 'pdf') {
+      return '生成 PDF 报销单：明细清单 + 小票附件页';
+    }
+    return 'CSV 明细清单 + 小票原图，打包 zip 压缩包';
+  }
+
+  // 导出格式选择 chip
+  @Builder
+  FormatChip(format: string, label: string) {
+    Text(label)
+      .fontSize(13)
+      .fontWeight(this.exportFormat === format ? FontWeight.Medium : FontWeight.Normal)
+      .fontColor(this.exportFormat === format ? $r('app.color.text_white') : $r('app.color.text_secondary'))
+      .backgroundColor(this.exportFormat === format ? this.brandMain : $r('app.color.card_bg'))
+      .borderRadius(14)
+      .height(28)
+      .padding({ left: 14, right: 14 })
+      .margin({ right: 8 })
+      .onClick(() => {
+        this.exportFormat = format;
+        hapticTick();
+      })
+  }
+
+  build() {
+    Column() {
+      Text('报销包导出')
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+        .margin({ top: 24, bottom: 4 })
+        .alignSelf(ItemAlign.Start)
+
+      Text('勾选需要报销的账单，选择导出格式打包分享')
+        .fontSize(12)
+        .fontColor($r('app.color.text_secondary'))
+        .margin({ bottom: 14 })
+        .alignSelf(ItemAlign.Start)
+
+      // 全选 / 合计行
+      Row() {
+        Row() {
+          SymbolGlyph(this.isAllSelected() ? $r('sys.symbol.checkmark_circle_fill') : $r('sys.symbol.circle'))
+            .fontSize(20)
+            .fontColor([this.isAllSelected() ? this.brandMain : $r('app.color.text_secondary')])
+          Text('全选（' + this.bills.length + ' 笔支出）')
+            .fontSize(14)
+            .fontColor($r('app.color.text_primary'))
+            .margin({ left: 6 })
+        }
+        .onClick(() => { this.toggleSelectAll(); })
+
+        Blank()
+
+        Column() {
+          Text('已选 ' + this.selectedIds.length + ' 笔')
+            .fontSize(12)
+            .fontColor($r('app.color.text_secondary'))
+          Text('¥' + this.getSelectedTotal().toFixed(2))
+            .fontSize(15)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.expense_red'))
+        }
+        .alignItems(HorizontalAlign.End)
+      }
+      .width('100%')
+      .margin({ bottom: 10 })
+
+      Divider()
+        .color($r('app.color.border_color'))
+        .margin({ bottom: 4 })
+
+      // 账单多选列表（LazyForEach 懒加载：只渲染可见行，账单再多也不卡）
+      List() {
+        LazyForEach(this.dataSource, (item: BillItem) => {
+          ListItem() {
+            Row() {
+              SymbolGlyph(this.isSelected(item.id) ? $r('sys.symbol.checkmark_circle_fill') : $r('sys.symbol.circle'))
+                .fontSize(20)
+                .fontColor([this.isSelected(item.id) ? this.brandMain : $r('app.color.text_secondary')])
+
+              Column() {
+                Row() {
+                  Text(item.name)
+                    .fontSize(15)
+                    .fontColor($r('app.color.text_primary'))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .layoutWeight(1)
+                  if (item.photoUris !== undefined && item.photoUris.length > 0) {
+                    SymbolGlyph($r('sys.symbol.paperclip'))
+                      .fontSize(13)
+                      .fontColor([$r('app.color.text_secondary')])
+                      .margin({ left: 6 })
+                  }
+                }
+                .width('100%')
+
+                Row() {
+                  Text(this.formatDate(item.date) + ' · ' + item.category + ' · ' + item.source)
+                    .fontSize(12)
+                    .fontColor($r('app.color.text_secondary'))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                }
+                .width('100%')
+                .margin({ top: 2 })
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+              .margin({ left: 10 })
+
+              Text('¥' + item.amount.toFixed(2))
+                .fontSize(15)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.expense_red'))
+            }
+            .width('100%')
+            .padding({ top: 10, bottom: 10 })
+            .border({ width: { bottom: 1 }, color: $r('app.color.border_color') })
+            .onClick(() => { this.toggleSelect(item.id); })
+          }
+        }, (item: BillItem) => item.id.toString() + (this.isSelected(item.id) ? '_1' : '_0'))
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+      .edgeEffect(EdgeEffect.Spring)
+
+      // 底部固定操作区：导出格式选择 + 操作按钮
+      Column() {
+        Row() {
+          this.FormatChip('zip', '压缩包')
+          this.FormatChip('png', '长图')
+          this.FormatChip('pdf', 'PDF')
+        }
+        .width('100%')
+
+        Text(this.getFormatHint())
+          .fontSize(11)
+          .fontColor($r('app.color.text_secondary'))
+          .margin({ top: 6, bottom: 10 })
+          .alignSelf(ItemAlign.Start)
+
+        Row() {
+          Button('取消')
+            .backgroundColor($r('app.color.card_bg'))
+            .fontColor($r('app.color.text_secondary'))
+            .border({ width: 1, color: $r('app.color.border_color') })
+            .borderRadius(21)
+            .height(42)
+            .fontSize(15)
+            .layoutWeight(1)
+            .onClick(() => { this.onClose(); })
+
+          Blank()
+            .width(12)
+
+          Button('导出报销包')
+            .backgroundColor(this.brandMain)
+            .fontColor($r('app.color.text_white'))
+            .borderRadius(21)
+            .height(42)
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .layoutWeight(2)
+            .onClick(() => { this.confirmExport(); })
+        }
+        .width('100%')
+      }
+      .width('100%')
+      .margin({ top: 10 })
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 20, right: 20, bottom: 24 })
   }
 }
 
@@ -2679,8 +4156,8 @@ struct LoadingDialog {
     .padding(32)
     .backgroundColor($r('app.color.glass_bg'))
     .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-    .borderRadius({ topLeft: 26, topRight: 23, bottomLeft: 25, bottomRight: 27 })
-    .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+    .borderRadius(26)
+    .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
   }
 }
 
@@ -2834,6 +4311,7 @@ export interface BillItem {
   refundAmount?: number;   // 累计退款金额（有退款抵扣时存在）
   originalAmount?: number; // 原始支付金额（有退款抵扣时存在）
   orderNo?: string;        // 商户单号/商家订单号（微信/支付宝导入时存在，用于退款精确匹配）
+  locationName?: string;   // 消费地点（记一笔时「记地点」获取的逆地理编码地名）
 }
 
 // 回收站条目：被删除的账单 + 删除时间
@@ -3074,8 +4552,8 @@ struct MonthPickerDialog {
     .padding(20)
     .backgroundColor($r('app.color.glass_bg'))
     .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-    .borderRadius({ topLeft: 26, topRight: 23, bottomLeft: 25, bottomRight: 27 })
-    .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+    .borderRadius(26)
+    .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
   }
 }
 
@@ -3167,6 +4645,8 @@ struct Index {
   @StorageProp('brand_tint') brandTint: string = '#EEF1FE';
   @StorageLink('bills') @Watch('onBillsChanged') bills: BillItem[] = [];
   @State currentTabIndex: number = 0;
+  // 统计页图表入场揭示进度（0→1）：变化时逐帧重绘三个 Canvas 图表
+  @State @Watch('onStatRevealFrame') statRevealProgress: number = 0;
   // ---------- 多账本状态 ----------
   @State ledgers: LedgerItem[] = [];
   @State currentLedgerId: number = DEFAULT_LEDGER_ID;
@@ -3176,6 +4656,7 @@ struct Index {
   @State billViewYear: number = new Date().getFullYear();
   @State billViewMonth: number = new Date().getMonth() + 1;
   @State refreshKey: number = 0;
+  @State firstLoadDone: boolean = false;  // 首屏账单数据加载完成（未完成时列表区显示骨架屏）
   @State budget: number = 0;
   @State hasBudget: boolean = false;
   @State billFilterCategory: string = '全部';
@@ -3234,21 +4715,46 @@ struct Index {
   // 资产明细页「资产管理」入口：返回时跳转到财富页资产界面
   @StorageLink('jump_to_wealth_asset') @Watch('onJumpToWealthAsset') jumpToWealthAsset: boolean = false;
   @State billFilterTag: string = '';  // 筛选的标签，空字符串表示全部
+  // 账单页筛选面板（类型/分类/来源/金额区间/自定义日期范围，支持跨月）
+  @State billFilterType: string = '全部';       // '全部' | '支出' | '收入'
+  @State billFilterSource: string = '全部';     // 来源账户，'全部' 表示不限
+  @State billFilterAmountMin: string = '';      // 金额区间下限（空 = 不限）
+  @State billFilterAmountMax: string = '';      // 金额区间上限（空 = 不限）
+  @State billFilterDateStart: number = 0;       // 自定义范围起点（当日零点，0 = 不启用）
+  @State billFilterDateEnd: number = 0;         // 自定义范围终点（当日零点，含当日，0 = 不启用）
+  @State showBillFilterSheet: boolean = false;  // 筛选面板显隐
   @State pressedBillId: number = -1;
   @State pressedFunc: string = '';
   @State pressedCard: string = '';
+  // ---------- 字号调节（适老模式）：应用内字体缩放比例 ----------
+  // 1.0 标准 / 1.15 大 / 1.3 特大，通过 ApplicationContext.setFontSizeScale 全局生效
+  @State fontScaleValue: number = 1.0;
+  // 字号切换过渡：全局 fp 重排集中在单帧，先淡出内容遮住重排，完成后再淡入
+  @State fontFadeOut: boolean = false;
+  // ---------- 摇一摇快捷记账 ----------
+  @State shakeQuickAddEnabled: boolean = false;  // 设置开关（默认关闭，首次开启弹引导确认）
+  private shakeHelper: ShakeHelper = new ShakeHelper();
+  private lastClipText: string = '';  // 上次读取的剪贴板内容（去重：同一内容只提示一次）
 
   // ---------- 账单列表卡片弹性间距（滚动时间距伸缩，松手回弹） ----------
   @State billGapStretch: number = 0;
   private billListCenterIdx: number = 0;
+  // ---------- 滚动联动顶部玻璃栏（系统应用式透明过渡） ----------
+  // 0=顶部（全透明）→ 1=已滚动（毛玻璃+发丝线），由各 Tab 内容区 onDidScroll 驱动
+  @State statsHeaderGlass: number = 0;
+  @State billsHeaderGlass: number = 0;
+  @State profileHeaderGlass: number = 0;
   // 账本切换半模态弹层显隐
   @State showLedgerSheet: boolean = false;
-  // 记一笔 / 搜索账单共用一个半模态弹层，按类型切换内容
+  // 记一笔半模态弹层显隐（搜索已迁移至全屏搜索页 SearchPage）
   @State showActionSheet: boolean = false;
-  @State actionSheetType: 'add' | 'search' = 'add';
+  // 打开记一笔时预填的金额（剪贴板识别场景），空串表示不预填
+  @State addPresetAmount: string = '';
   // 编辑账单半模态弹层（与记一笔一致的弹出效果）
   @State showEditSheet: boolean = false;
   @State editSheetBill: BillItem | null = null;
+  // 报销包导出：多选支出账单半模态弹层
+  @State showExpensePackSheet: boolean = false;
   // 应用内提醒中心（标题栏铃铛入口 + 半模态列表）
   @State showReminderSheet: boolean = false;
   @State reminderItems: ReminderItem[] = [];
@@ -3904,6 +5410,13 @@ struct Index {
     if (this.lockoutTimer >= 0) {
       clearInterval(this.lockoutTimer);
       this.lockoutTimer = -1;
+    }
+    // 释放摇一摇的加速度传感器订阅
+    this.stopShakeListener();
+    // 释放统计页入场动画的 animator，避免回调持有组件导致内存泄漏
+    if (this.statRevealAnimator !== null) {
+      this.statRevealAnimator.cancel();
+      this.statRevealAnimator = null;
     }
   }
 
@@ -4981,6 +6494,201 @@ struct Index {
     }
   }
 
+  // ---------- 字号调节（适老模式） ----------
+  // 应用全局字体缩放：ApplicationContext.setFontSizeScale 缩放所有 fp 字号，仅主线程可调
+  applyFontScale(value: number): void {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      if (context) {
+        context.getApplicationContext().setFontSizeScale(value);
+      }
+    } catch (e) {
+      console.error('应用字号缩放失败', e);
+    }
+  }
+
+  async loadFontScale(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      if (!context) {
+        return;
+      }
+      const prefs = await dataPreferences.getPreferences(context, 'bill_data');
+      const saved = await prefs.get('font_scale', 1.0) as number;
+      this.fontScaleValue = isNaN(saved) ? 1.0 : saved;
+      this.applyFontScale(this.fontScaleValue);
+    } catch (e) {
+      console.error('加载字号设置失败', e);
+    }
+  }
+
+  async saveFontScale(value: number): Promise<void> {
+    this.fontScaleValue = value;
+    this.applyFontScale(value);
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const prefs = await dataPreferences.getPreferences(context, 'bill_data');
+      await prefs.put('font_scale', value);
+      await prefs.flush();
+    } catch (e) {
+      console.error('保存字号设置失败', e);
+    }
+  }
+
+  // 字号切换防掉帧：setFontSizeScale 触发全页面文本同步重排，单帧开销大；
+  // 先把主内容淡出（120ms），在不可见状态下应用缩放让重排完成，再淡入（200ms），
+  // 用户感知为一次平滑的交叉过渡而不是卡顿跳变
+  switchFontScale(value: number): void {
+    if (this.fontScaleValue === value || this.fontFadeOut) {
+      return;
+    }
+    hapticTick();
+    animateTo({ duration: 120, curve: Curve.EaseOut }, () => {
+      this.fontFadeOut = true;
+    });
+    setTimeout(() => {
+      this.saveFontScale(value);
+      animateTo({ duration: 200, curve: Curve.EaseIn }, () => {
+        this.fontFadeOut = false;
+      });
+    }, 130);
+  }
+
+  // ---------- 滚动联动顶部玻璃栏：随滚动渐显的毛玻璃底与发丝线 ----------
+  // level: 0（顶部）→ 1（滚动后），56vp 滚动行程内完成透明过渡
+  headerPlateBg(level: number): string {
+    const clamped: number = Math.max(0, Math.min(1, level));
+    if (this.currentColorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK) {
+      return 'rgba(14, 15, 21, ' + (clamped * 0.86).toFixed(3) + ')';
+    }
+    return 'rgba(241, 243, 250, ' + (clamped * 0.86).toFixed(3) + ')';
+  }
+
+  headerPlateLine(level: number): string {
+    const clamped: number = Math.max(0, Math.min(1, level));
+    if (this.currentColorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK) {
+      return 'rgba(40, 43, 56, ' + (clamped * 0.7).toFixed(3) + ')';
+    }
+    return 'rgba(203, 209, 224, ' + (clamped * 0.7).toFixed(3) + ')';
+  }
+
+  // ---------- 摇一摇快捷记账 ----------
+  async loadShakeQuickAdd(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      if (!context) {
+        return;
+      }
+      const prefs = await dataPreferences.getPreferences(context, 'bill_data');
+      this.shakeQuickAddEnabled = (await prefs.get('shake_quick_add', false)) as boolean;
+    } catch (e) {
+      console.error('加载摇一摇设置失败', e);
+      return;
+    }
+    this.startShakeListener();
+  }
+
+  async saveShakeQuickAdd(enabled: boolean): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const prefs = await dataPreferences.getPreferences(context, 'bill_data');
+      await prefs.put('shake_quick_add', enabled);
+      await prefs.flush();
+    } catch (e) {
+      console.error('保存摇一摇设置失败', e);
+    }
+  }
+
+  // 首次开启引导：向用户说明功能效果，确认后才真正开启
+  confirmEnableShakeQuickAdd(): void {
+    this.getUIContext().getPromptAction().showDialog({
+      title: '开启摇一摇快捷记账',
+      message: '开启后，摇一摇手机即可快速打开「记一笔」。需要设备支持加速度传感器。',
+      buttons: [
+        { text: '取消', color: $r('app.color.text_secondary') },
+        { text: '开启', color: this.brandMain }
+      ]
+    }).then((result: DialogResult) => {
+      if (result.index === 1) {
+        this.applyShakeQuickAdd(true);
+      }
+    }).catch(() => {});
+  }
+
+  applyShakeQuickAdd(enabled: boolean): void {
+    this.shakeQuickAddEnabled = enabled;
+    this.saveShakeQuickAdd(enabled);
+    if (enabled) {
+      this.startShakeListener();
+      hapticTick();
+    } else {
+      this.stopShakeListener();
+    }
+  }
+
+  startShakeListener(): void {
+    if (!this.shakeQuickAddEnabled) {
+      return;
+    }
+    this.shakeHelper.start(() => {
+      this.onShakeDetected();
+    });
+  }
+
+  stopShakeListener(): void {
+    this.shakeHelper.stop();
+  }
+
+  // 摇动触发：轻震反馈并打开记一笔（弹层已打开或隐私锁锁定时不打扰）
+  onShakeDetected(): void {
+    if (this.isPrivacyLocked || this.showActionSheet || this.showEditSheet || this.showLedgerSheet) {
+      return;
+    }
+    hapticTick();
+    this.openAddDialog();
+  }
+
+  // ---------- 剪贴板金额识别 ----------
+  // 页面显露时读取剪贴板：内容变化且包含金额时提示"去记账"，同一内容只提示一次
+  async checkClipboardAmount(): Promise<void> {
+    if (this.isPrivacyLocked || this.showActionSheet || this.showEditSheet || this.showLedgerSheet) {
+      return;
+    }
+    try {
+      const clipData: pasteboard.PasteData = await pasteboard.getSystemPasteboard().getData();
+      const text: string = clipData.getPrimaryText();
+      if (text === undefined || text === null) {
+        return;
+      }
+      const trimmed: string = text.trim();
+      if (trimmed.length === 0 || trimmed.length > 200) {
+        return;
+      }
+      if (trimmed === this.lastClipText) {
+        return;
+      }
+      this.lastClipText = trimmed;
+      const amount: number | null = extractClipAmount(trimmed);
+      if (amount === null) {
+        return;
+      }
+      this.getUIContext().getPromptAction().showDialog({
+        title: '检测到金额',
+        message: `剪贴板中包含金额 ¥${amount.toFixed(2)}，要去记一笔吗？`,
+        buttons: [
+          { text: '忽略', color: $r('app.color.text_secondary') },
+          { text: '去记账', color: this.brandMain }
+        ]
+      }).then((result: DialogResult) => {
+        if (result.index === 1) {
+          this.openAddDialog(amount.toFixed(2));
+        }
+      }).catch(() => {});
+    } catch (e) {
+      console.error('读取剪贴板失败', e);
+    }
+  }
+
   async loadBrandThemeIndex(): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -5244,6 +6952,10 @@ struct Index {
     this.initPrivacyLockState();
     this.loadHapticEnabled();
     this.loadReminderData();
+    // 字号调节（适老模式）：加载并应用保存的字体缩放比例
+    this.loadFontScale();
+    // 摇一摇快捷记账：加载开关（开启时自动订阅加速度传感器）
+    this.loadShakeQuickAdd();
     // 未读提醒圆点呼吸：轻微缩放往复，提示有待处理事项
     animateTo({
       duration: 1100,
@@ -5267,8 +6979,11 @@ struct Index {
         this.migrateOldBills();
         this.migrateOldBillsForTags();
         this.updateStatSummary();
+        // 首屏数据就绪：骨架屏切换为真实列表
+        this.firstLoadDone = true;
       });
     } catch (e) {
+      this.firstLoadDone = true;
       console.error('❌ initLedgerData 失败: ' + JSON.stringify(e));
     }
 
@@ -5348,16 +7063,67 @@ struct Index {
     });
   }
 
+  // 筛选日期范围是否生效（起止都设置才启用，支持跨月）
+  billFilterRangeActive(): boolean {
+    return this.billFilterDateStart > 0 && this.billFilterDateEnd > 0;
+  }
+
+  // 账单筛选是否有生效中的条件（筛选按钮高亮标记）
+  hasActiveBillFilters(): boolean {
+    return this.billFilterType !== '全部' || this.billFilterCategory !== '全部' ||
+      this.billFilterSource !== '全部' || this.billFilterAmountMin.length > 0 ||
+      this.billFilterAmountMax.length > 0 || this.billFilterRangeActive();
+  }
+
+  // 账单页标题文案：自定义范围生效时显示起止短格式
+  getBillViewRangeLabel(): string {
+    if (this.billFilterRangeActive()) {
+      const s: Date = new Date(this.billFilterDateStart);
+      const e: Date = new Date(this.billFilterDateEnd);
+      const fmt = (d: Date): string => (d.getMonth() + 1) + '.' + d.getDate();
+      return fmt(s) + ' - ' + fmt(e);
+    }
+    return this.billViewYear + '年' + this.billViewMonth + '月';
+  }
+
   getBillViewBills(): BillItem[] {
+    const rangeActive: boolean = this.billFilterRangeActive();
     let filtered = this.bills.filter(item => {
+      if ((item.ledgerId ?? DEFAULT_LEDGER_ID) !== this.currentLedgerId) {
+        return false;
+      }
+      // 自定义日期范围（可跨月）优先于浏览月份
+      if (rangeActive) {
+        return item.date >= this.billFilterDateStart &&
+          item.date < this.billFilterDateEnd + 24 * 60 * 60 * 1000;
+      }
       const d = new Date(item.date);
-      return (item.ledgerId ?? DEFAULT_LEDGER_ID) === this.currentLedgerId &&
-        d.getFullYear() === this.billViewYear && (d.getMonth() + 1) === this.billViewMonth;
+      return d.getFullYear() === this.billViewYear && (d.getMonth() + 1) === this.billViewMonth;
     });
+
+    // 按类型筛选
+    if (this.billFilterType !== '全部') {
+      filtered = filtered.filter(item => item.type === this.billFilterType);
+    }
 
     // 按分类筛选
     if (this.billFilterCategory !== '全部') {
       filtered = filtered.filter(item => item.category === this.billFilterCategory);
+    }
+
+    // 按来源账户筛选
+    if (this.billFilterSource !== '全部') {
+      filtered = filtered.filter(item => item.source === this.billFilterSource);
+    }
+
+    // 按金额区间筛选
+    const minAmount: number = parseFloat(this.billFilterAmountMin);
+    const maxAmount: number = parseFloat(this.billFilterAmountMax);
+    if (this.billFilterAmountMin.length > 0 && !isNaN(minAmount)) {
+      filtered = filtered.filter(item => item.amount >= minAmount);
+    }
+    if (this.billFilterAmountMax.length > 0 && !isNaN(maxAmount)) {
+      filtered = filtered.filter(item => item.amount <= maxAmount);
     }
 
     // ✅ 按标签筛选
@@ -5370,28 +7136,38 @@ struct Index {
 
   private billWeekLabels: string[] = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
-  // 账单页：浏览月份的总支出（当前账本，不受分类/标签筛选影响）
+  // 账单页：浏览窗口（月份或自定义范围）的总支出（当前账本，不受分类/标签筛选影响）
   getBillViewMonthExpense(): number {
     let sum = 0;
+    const rangeActive: boolean = this.billFilterRangeActive();
     this.bills.forEach((b: BillItem) => {
+      if ((b.ledgerId ?? DEFAULT_LEDGER_ID) !== this.currentLedgerId || b.type !== '支出') {
+        return;
+      }
       const d = new Date(b.date);
-      if ((b.ledgerId ?? DEFAULT_LEDGER_ID) === this.currentLedgerId &&
-        d.getFullYear() === this.billViewYear && (d.getMonth() + 1) === this.billViewMonth &&
-        b.type === '支出') {
+      const inWindow: boolean = rangeActive
+        ? (b.date >= this.billFilterDateStart && b.date < this.billFilterDateEnd + 24 * 60 * 60 * 1000)
+        : (d.getFullYear() === this.billViewYear && (d.getMonth() + 1) === this.billViewMonth);
+      if (inWindow) {
         sum += b.amount;
       }
     });
     return sum;
   }
 
-  // 账单页：浏览月份的总收入
+  // 账单页：浏览窗口（月份或自定义范围）的总收入
   getBillViewMonthIncome(): number {
     let sum = 0;
+    const rangeActive: boolean = this.billFilterRangeActive();
     this.bills.forEach((b: BillItem) => {
+      if ((b.ledgerId ?? DEFAULT_LEDGER_ID) !== this.currentLedgerId || b.type !== '收入') {
+        return;
+      }
       const d = new Date(b.date);
-      if ((b.ledgerId ?? DEFAULT_LEDGER_ID) === this.currentLedgerId &&
-        d.getFullYear() === this.billViewYear && (d.getMonth() + 1) === this.billViewMonth &&
-        b.type === '收入') {
+      const inWindow: boolean = rangeActive
+        ? (b.date >= this.billFilterDateStart && b.date < this.billFilterDateEnd + 24 * 60 * 60 * 1000)
+        : (d.getFullYear() === this.billViewYear && (d.getMonth() + 1) === this.billViewMonth);
+      if (inWindow) {
         sum += b.amount;
       }
     });
@@ -6206,15 +7982,20 @@ struct Index {
     Column() {
       Row() {
         Column() {
-          Text(this.billSummaryMode === 'expense' ? '本月总支出' : '本月总收入')
+          Text(this.billSummaryMode === 'expense' ?
+            (this.billFilterRangeActive() ? '范围总支出' : '本月总支出') :
+            (this.billFilterRangeActive() ? '范围总收入' : '本月总收入'))
             .fontSize(13)
             .fontColor($r('app.color.text_secondary'))
-          Text('¥' + (this.billSummaryMode === 'expense' ?
-            this.getBillViewMonthExpense() : this.getBillViewMonthIncome()).toFixed(2))
-            .fontSize(26)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.billSummaryMode === 'expense' ?
-            $r('app.color.expense_red') : $r('app.color.income_gold'))
+          AnimatedNumber({
+            targetValue: this.billSummaryMode === 'expense' ?
+              this.getBillViewMonthExpense() : this.getBillViewMonthIncome(),
+            prefix: '¥',
+            fontSize: 26,
+            fontWeight: FontWeight.Bold,
+            fontColor: this.billSummaryMode === 'expense' ?
+              $r('app.color.expense_red') : $r('app.color.income_gold')
+          })
             .margin({ top: 4 })
         }
         .alignItems(HorizontalAlign.Start)
@@ -6275,11 +8056,15 @@ struct Index {
           .fontSize(13)
           .fontColor($r('app.color.text_secondary'))
         Blank()
-        Text((this.getBillViewMonthBalance() >= 0 ? '+' : '') + '¥' + this.getBillViewMonthBalance().toFixed(2))
-          .fontSize(15)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.getBillViewMonthBalance() >= 0 ?
-          $r('app.color.income_gold') : $r('app.color.expense_red'))
+        AnimatedNumber({
+          targetValue: this.getBillViewMonthBalance(),
+          prefix: '¥',
+          signed: true,
+          fontSize: 15,
+          fontWeight: FontWeight.Bold,
+          fontColor: this.getBillViewMonthBalance() >= 0 ?
+          $r('app.color.income_gold') : $r('app.color.expense_red')
+        })
       }
       .width('100%')
     }
@@ -6288,13 +8073,13 @@ struct Index {
     .width('100%')
     .padding(16)
     .backgroundColor($r('app.color.card_bg'))
-    .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-    .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+    .borderRadius(18)
+    .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
     .margin({ bottom: 12 })
   }
 
   // ---------- 增删改账单 ----------
-  addBill(name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags?: string[], photos?: string[]) {
+  addBill(name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags?: string[], photos?: string[], location?: string) {
     const newBill: BillItem = {
       id: this.nextBillId(),
       name: name,
@@ -6305,7 +8090,8 @@ struct Index {
       source: source || '现金',
       tags: tags || [],  // ✅ 使用传入的 tags
       ledgerId: this.currentLedgerId,  // 记入当前选中账本
-      photoUris: photos && photos.length > 0 ? photos : []
+      photoUris: photos && photos.length > 0 ? photos : [],
+      locationName: location !== undefined && location.length > 0 ? location : undefined
     };
     animateTo({ curve: AnimationConfig.SPRING_SOFT }, () => {
       this.bills = [newBill, ...this.bills];
@@ -6370,7 +8156,7 @@ struct Index {
     }
   }
 
-  async updateBill(id: number, name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags?: string[], photos?: string[]) {
+  async updateBill(id: number, name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags?: string[], photos?: string[], location?: string) {
     console.info('📌 updateBill 被调用，id:', id, 'tags:', tags);
     const index = this.bills.findIndex(item => item.id === id);
     if (index === -1) return;
@@ -6388,6 +8174,9 @@ struct Index {
       ledgerId: oldBill.ledgerId,  // 保留原账本归属
       recurringKey: oldBill.recurringKey,  // 保留周期账单标记
       photoUris: photos || [],
+      // 消费地点：location 传 undefined 表示未改动（保留原值），空串表示清除，非空表示更新
+      locationName: location === undefined ? oldBill.locationName :
+        (location.length > 0 ? location : undefined),
       // 退款相关的交易元数据必须由 persisted 数据带过来，不能丢：
       // orderNo 是下次导入同一份支付宝/微信账单时精确匹配退款的唯一凭据，
       // 一旦丢掉，这笔账单后续再也无法自动抵扣退款
@@ -6775,6 +8564,384 @@ struct Index {
   // 分类管理（进入当前账本的分类管理页）
   openCategoryManager() {
     this.pathStack.pushPathByName('CategoryManagePage', { ledgerId: this.currentLedgerId } as CategoryManageParams);
+  }
+
+  // ---------- 报销包导出 ----------
+  // 待选账单：当前账本的全部支出账单，按日期倒序（最近在前）
+  getExpensePackBills(): BillItem[] {
+    return this.bills.filter((b: BillItem): boolean =>
+      b.type === '支出' &&
+      (b.ledgerId === undefined ? DEFAULT_LEDGER_ID : b.ledgerId) === this.currentLedgerId)
+      .sort((a: BillItem, b: BillItem): number => b.date - a.date);
+  }
+
+  openExpensePackSheet() {
+    this.showExpensePackSheet = true;
+  }
+
+  // 导出报销包：勾选账单的清单 CSV + 小票图片 → 压缩 zip → 系统分享
+  // 导出报销包：按所选格式分发（zip 压缩包 / png 明细长图 / pdf 报销单）
+  private async exportExpensePack(ids: number[], format: string) {
+    const idSet: Set<number> = new Set(ids);
+    const billsToExport: BillItem[] = this.bills
+      .filter((b: BillItem): boolean => idSet.has(b.id))
+      .sort((a: BillItem, b: BillItem): number => a.date - b.date);
+    if (billsToExport.length === 0) {
+      this.getUIContext().getPromptAction().showToast({ message: '没有可导出的账单', duration: 2000 });
+      return;
+    }
+    try {
+      if (format === 'png') {
+        await this.exportExpensePackImage(billsToExport);
+      } else if (format === 'pdf') {
+        await this.exportExpensePackPdf(billsToExport);
+      } else {
+        await this.exportExpensePackZip(billsToExport);
+      }
+    } catch (e) {
+      const error = e as BusinessError;
+      console.error('报销包导出失败: code=' + error.code + ', message=' + error.message);
+      this.getUIContext().getPromptAction().showToast({ message: '报销包导出失败，请重试', duration: 2000 });
+    }
+  }
+
+  // 导出文件名：前缀_日期_时间戳.扩展名
+  private exportTimestampName(prefix: string, ext: string): string {
+    const d = new Date();
+    return prefix + '_' + d.getFullYear() +
+      String(d.getMonth() + 1).padStart(2, '0') +
+      String(d.getDate()).padStart(2, '0') + '_' + Date.now() + ext;
+  }
+
+  // 分享已生成的导出文件（按扩展名推断 UTD 类型，拉起系统分享面板）
+  private async shareExportedFile(filePath: string, fileName: string, description: string) {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const uri = fileUri.getUriFromPath(filePath);
+    const extMatch: RegExpMatchArray | null = fileName.match(/\.[a-zA-Z0-9]+$/);
+    const ext: string = extMatch !== null ? extMatch[0].toLowerCase() : '.txt';
+    const shareData: systemShare.SharedData = new systemShare.SharedData({
+      utd: utd.getUniformDataTypeByFilenameExtension(ext),
+      uri: uri,
+      title: fileName,
+      description: description
+    });
+    const shareController: systemShare.ShareController = new systemShare.ShareController(shareData);
+    await shareController.show(context, {
+      selectionMode: systemShare.SelectionMode.SINGLE,
+      previewMode: systemShare.SharePreviewMode.DEFAULT
+    });
+  }
+
+  // 报销包格式一：CSV 清单 + 小票原图打包 zip（保留完整字段，适合存档/二次整理）
+  private async exportExpensePackZip(billsToExport: BillItem[]) {
+    this.getUIContext().getPromptAction().showToast({ message: '正在打包报销包…', duration: 2000 });
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const cacheDir = context.cacheDir;
+    const stamp: number = Date.now();
+    const packDir: string = cacheDir + '/expense_pack_' + stamp;
+    // 记录入包文件名，打包完成后逐一清理临时目录
+    const writtenFiles: string[] = [];
+    if (!fs.accessSync(packDir)) {
+      fs.mkdirSync(packDir);
+    }
+    // 报销清单 CSV
+    let csvContent = '\uFEFF序号,日期,用途,分类,金额,来源,地点,标签\n';
+    for (let i = 0; i < billsToExport.length; i++) {
+      const item: BillItem = billsToExport[i];
+      const d = new Date(item.date);
+      const dateStr = d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+      const tagStr: string = item.tags !== undefined ? item.tags.join(';') : '';
+      const locationStr: string = item.locationName !== undefined ? item.locationName : '';
+      csvContent += (i + 1) + ',' + dateStr + ',' + escapeCsvField(item.name) + ',' +
+        escapeCsvField(item.category) + ',' + item.amount.toFixed(2) + ',' +
+        escapeCsvField(item.source) + ',' + escapeCsvField(locationStr) + ',' +
+        escapeCsvField(tagStr) + '\n';
+      // 拷贝该账单的小票图片：序号_用途_图序.ext
+      const pics: string[] = item.photoUris !== undefined ? item.photoUris : [];
+      for (let j = 0; j < pics.length; j++) {
+        const srcPath: string = sandboxPathFromUri(pics[j]);
+        if (srcPath.length === 0) {
+          continue;
+        }
+        const extMatch: RegExpMatchArray | null = srcPath.match(/\.([a-zA-Z0-9]+)$/);
+        const ext: string = extMatch !== null ? extMatch[1].toLowerCase() : 'jpg';
+        const destName: string = (i + 1) + '_' + sanitizeFileNamePart(item.name) + '_' + (j + 1) + '.' + ext;
+        try {
+          if (fs.accessSync(srcPath)) {
+            fs.copyFileSync(srcPath, packDir + '/' + destName);
+            writtenFiles.push(destName);
+          }
+        } catch (e) {
+          console.error('报销包拷贝小票失败: ' + JSON.stringify(e));
+        }
+      }
+    }
+    const csvName = '报销清单.csv';
+    const csvFile = fs.openSync(packDir + '/' + csvName, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+    fs.writeSync(csvFile.fd, csvContent);
+    fs.closeSync(csvFile);
+    writtenFiles.push(csvName);
+
+    // 压缩整个临时目录为 zip（zlib.compressFile 输出 zip 格式）
+    const zipName: string = this.exportTimestampName('报销包', '.zip');
+    const zipPath = cacheDir + '/' + zipName;
+    const options: zlib.Options = {
+      level: zlib.CompressLevel.COMPRESS_LEVEL_DEFAULT_COMPRESSION
+    };
+    await zlib.compressFile(packDir, zipPath, options);
+
+    // 清理临时目录（zip 保留在 cacheDir 供分享，系统会按缓存策略回收）
+    for (let k = 0; k < writtenFiles.length; k++) {
+      try {
+        fs.unlinkSync(packDir + '/' + writtenFiles[k]);
+      } catch (e) {
+        // 忽略单个文件清理失败
+      }
+    }
+    try {
+      fs.rmdirSync(packDir);
+    } catch (e) {
+      // 忽略目录清理失败
+    }
+    await this.shareExportedFile(zipPath, zipName, '报销包导出');
+  }
+
+  // 报销包格式二：报销明细长图（离屏 Canvas 绘制 PNG，适合直接发聊天）
+  // 长图最多展示 100 笔明细（画布尺寸限制），更多笔数在图上注明
+  private async exportExpensePackImage(billsToExport: BillItem[]) {
+    this.getUIContext().getPromptAction().showToast({ message: '正在生成长图…', duration: 2000 });
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const maxRows: number = 100;
+    const truncated: boolean = billsToExport.length > maxRows;
+    const rows: BillItem[] = truncated ? billsToExport.slice(0, maxRows) : billsToExport;
+    const canvasWidth: number = 750;
+    const padding: number = 40;
+    const rowHeight: number = 62;
+    const headerHeight: number = 250;
+    const footerHeight: number = truncated ? 210 : 150;
+    const canvasHeight: number = headerHeight + rows.length * rowHeight + footerHeight;
+    const settings: RenderingContextSettings = new RenderingContextSettings(true);
+    const ctx: OffscreenCanvasRenderingContext2D = new OffscreenCanvasRenderingContext2D(canvasWidth, canvasHeight, settings);
+    const d = new Date();
+    const dateStr = d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+    // 背景
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    ctx.textBaseline = 'top';
+    // 标题 + 副标题
+    ctx.fillStyle = '#1F2329';
+    ctx.font = 'bold 56px sans-serif';
+    ctx.fillText('报销单', padding, 44);
+    ctx.font = '28px sans-serif';
+    ctx.fillStyle = '#8A9099';
+    ctx.fillText(this.getLedgerNameById(this.currentLedgerId) + ' · 共 ' + billsToExport.length + ' 笔 · ' + dateStr,
+      padding, 122);
+    // 表头分隔线
+    ctx.strokeStyle = '#E5E7EB';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(padding, 176);
+    ctx.lineTo(canvasWidth - padding, 176);
+    ctx.stroke();
+    // 表头
+    ctx.fillStyle = '#8A9099';
+    ctx.font = '28px sans-serif';
+    ctx.fillText('日期', padding, 196);
+    ctx.fillText('用途 · 分类', padding + 210, 196);
+    // 明细行
+    let total: number = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const item: BillItem = rows[i];
+      total += item.amount;
+      const rowY: number = headerHeight + i * rowHeight;
+      const dd = new Date(item.date);
+      const itemDate: string = dd.getFullYear() + '-' +
+        String(dd.getMonth() + 1).padStart(2, '0') + '-' +
+        String(dd.getDate()).padStart(2, '0');
+      ctx.fillStyle = '#8A9099';
+      ctx.font = '28px sans-serif';
+      ctx.fillText(itemDate, padding, rowY + 4);
+      // 用途 · 分类（超长截断）
+      ctx.fillStyle = '#1F2329';
+      ctx.font = '32px sans-serif';
+      let label: string = item.name + ' · ' + item.category;
+      const maxLabelWidth: number = 330;
+      if (ctx.measureText(label).width > maxLabelWidth) {
+        while (label.length > 1 && ctx.measureText(label + '…').width > maxLabelWidth) {
+          label = label.substring(0, label.length - 1);
+        }
+        label += '…';
+      }
+      ctx.fillText(label, padding + 210, rowY);
+      // 金额右对齐
+      const amt: string = '¥' + item.amount.toFixed(2);
+      ctx.font = 'bold 32px sans-serif';
+      ctx.fillText(amt, canvasWidth - padding - ctx.measureText(amt).width, rowY);
+    }
+    // 合计区
+    const summaryY: number = headerHeight + rows.length * rowHeight + 20;
+    ctx.strokeStyle = '#E5E7EB';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(padding, summaryY);
+    ctx.lineTo(canvasWidth - padding, summaryY);
+    ctx.stroke();
+    ctx.font = 'bold 40px sans-serif';
+    ctx.fillStyle = '#1F2329';
+    ctx.fillText('合计 ' + billsToExport.length + ' 笔', padding, summaryY + 22);
+    const totalStr: string = '¥' + total.toFixed(2);
+    ctx.fillStyle = '#D94838';
+    ctx.fillText(totalStr, canvasWidth - padding - ctx.measureText(totalStr).width, summaryY + 22);
+    // 截断说明 + 落款
+    if (truncated) {
+      ctx.font = '26px sans-serif';
+      ctx.fillStyle = '#B3B9C0';
+      ctx.fillText('明细超过 100 笔，长图仅展示前 100 笔，完整清单请用压缩包或 PDF', padding, summaryY + 88);
+    }
+    ctx.font = '26px sans-serif';
+    ctx.fillStyle = '#B3B9C0';
+    ctx.fillText('由乌鸡记账导出 · ' + dateStr, padding, summaryY + (truncated ? 136 : 88));
+    // 导出 PNG：toDataURL → base64 解码 → 写文件
+    const dataUrl: string = ctx.toDataURL('image/png');
+    const base64: string = dataUrl.substring(dataUrl.indexOf(',') + 1);
+    const bytes: Uint8Array = new util.Base64Helper().decodeSync(base64);
+    const buffer: ArrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const fileName: string = this.exportTimestampName('报销单', '.png');
+    const filePath: string = context.cacheDir + '/' + fileName;
+    const file = fs.openSync(filePath, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+    fs.writeSync(file.fd, buffer);
+    fs.closeSync(file);
+    await this.shareExportedFile(filePath, fileName, '报销单长图导出');
+  }
+
+  // 报销包格式三：PDF 报销单（PDF Kit 离线生成：明细列表 + 小票附件页）
+  private async exportExpensePackPdf(billsToExport: BillItem[]) {
+    this.getUIContext().getPromptAction().showToast({ message: '正在生成 PDF…', duration: 2000 });
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const pageWidth: number = 595;   // A4 宽（pt）
+    const pageHeight: number = 842;  // A4 高（pt）
+    const marginLeft: number = 42;
+    const doc: pdfService.PdfDocument = new pdfService.PdfDocument();
+    doc.createDocument(pageWidth, pageHeight);
+    let pageIndex: number = 0;
+    let page: pdfService.PdfPage = doc.getPage(pageIndex);
+    const titleStyle: pdfService.TextStyle = { textSize: 24, isBold: true, textColor: 0x1F2329 };
+    const metaStyle: pdfService.TextStyle = { textSize: 10, textColor: 0x8A9099 };
+    const headStyle: pdfService.TextStyle = { textSize: 11, textColor: 0x8A9099 };
+    const rowStyle: pdfService.TextStyle = { textSize: 11, textColor: 0x1F2329 };
+    const boldStyle: pdfService.TextStyle = { textSize: 12, isBold: true, textColor: 0x1F2329 };
+    const totalStyle: pdfService.TextStyle = { textSize: 12, isBold: true, textColor: 0xD94838 };
+    const d = new Date();
+    const dateStr = d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+    // 标题 + 副标题 + 表头
+    page.addTextObject('报销单', 262, 56, titleStyle);
+    page.addTextObject(this.getLedgerNameById(this.currentLedgerId) + ' · 共 ' + billsToExport.length + ' 笔 · ' + dateStr,
+      marginLeft, 88, metaStyle);
+    page.addTextObject('日期', marginLeft, 118, headStyle);
+    page.addTextObject('用途', marginLeft + 105, 118, headStyle);
+    page.addTextObject('分类', marginLeft + 290, 118, headStyle);
+    page.addTextObject('金额', pageWidth - 130, 118, headStyle);
+    // 明细行（超出当前页自动换页）
+    let y: number = 142;
+    const rowStep: number = 18;
+    let total: number = 0;
+    for (let i = 0; i < billsToExport.length; i++) {
+      const item: BillItem = billsToExport[i];
+      total += item.amount;
+      if (y > pageHeight - 50) {
+        pageIndex += 1;
+        page = doc.insertBlankPage(pageIndex, pageWidth, pageHeight);
+        y = 56;
+      }
+      const dd = new Date(item.date);
+      const itemDate: string = dd.getFullYear() + '-' +
+        String(dd.getMonth() + 1).padStart(2, '0') + '-' +
+        String(dd.getDate()).padStart(2, '0');
+      page.addTextObject(itemDate, marginLeft, y, rowStyle);
+      page.addTextObject(truncateText(item.name, 12), marginLeft + 105, y, rowStyle);
+      page.addTextObject(truncateText(item.category, 8), marginLeft + 290, y, rowStyle);
+      page.addTextObject('¥' + item.amount.toFixed(2), pageWidth - 130, y, rowStyle);
+      y += rowStep;
+    }
+    // 合计
+    if (y > pageHeight - 60) {
+      pageIndex += 1;
+      page = doc.insertBlankPage(pageIndex, pageWidth, pageHeight);
+      y = 56;
+    }
+    page.addTextObject('合计 ' + billsToExport.length + ' 笔', marginLeft, y + 8, boldStyle);
+    page.addTextObject('¥' + total.toFixed(2), pageWidth - 130, y + 8, totalStyle);
+    // 小票附件页：3×3 宫格，等比缩放嵌入
+    const photoPaths: string[] = [];
+    billsToExport.forEach((item: BillItem) => {
+      const pics: string[] = item.photoUris !== undefined ? item.photoUris : [];
+      pics.forEach((uri: string) => {
+        const p: string = sandboxPathFromUri(uri);
+        if (p.length > 0 && fs.accessSync(p)) {
+          photoPaths.push(p);
+        }
+      });
+    });
+    if (photoPaths.length > 0) {
+      const attachTitleStyle: pdfService.TextStyle = { textSize: 16, isBold: true, textColor: 0x1F2329 };
+      pageIndex += 1;
+      page = doc.insertBlankPage(pageIndex, pageWidth, pageHeight);
+      page.addTextObject('小票附件（' + photoPaths.length + ' 张）', marginLeft, 50, attachTitleStyle);
+      const cellWidth: number = 160;
+      const cellHeight: number = 220;
+      const colGap: number = 26;
+      const rowGap: number = 24;
+      const perRow: number = 3;
+      const perPage: number = 9;
+      for (let k = 0; k < photoPaths.length; k++) {
+        const slot: number = k % perPage;
+        if (slot === 0 && k > 0) {
+          pageIndex += 1;
+          page = doc.insertBlankPage(pageIndex, pageWidth, pageHeight);
+          page.addTextObject('小票附件（续）', marginLeft, 50, attachTitleStyle);
+        }
+        const col: number = slot % perRow;
+        const row: number = Math.floor(slot / perRow);
+        const cellX: number = marginLeft + col * (cellWidth + colGap);
+        const cellY: number = 80 + row * (cellHeight + rowGap);
+        // 读取图片真实尺寸，等比缩放到单元格内
+        let drawW: number = cellWidth;
+        let drawH: number = cellHeight;
+        try {
+          const source: image.ImageSource = image.createImageSource(photoPaths[k]);
+          const info: image.ImageInfo = source.getImageInfoSync(0);
+          source.release();
+          const iw: number = info.size.width;
+          const ih: number = info.size.height;
+          if (iw > 0 && ih > 0) {
+            const scale: number = Math.min(cellWidth / iw, cellHeight / ih);
+            drawW = iw * scale;
+            drawH = ih * scale;
+          }
+        } catch (e) {
+          // 读取尺寸失败时按单元格尺寸放置
+        }
+        const drawX: number = cellX + (cellWidth - drawW) / 2;
+        const drawY: number = cellY + (cellHeight - drawH) / 2;
+        page.addImageObject(photoPaths[k], drawX, drawY, drawW, drawH);
+      }
+    }
+    // 保存 + 分享
+    const fileName: string = this.exportTimestampName('报销单', '.pdf');
+    const filePath: string = context.cacheDir + '/' + fileName;
+    const saved: boolean = doc.saveDocument(filePath);
+    doc.releaseDocument();
+    if (!saved) {
+      this.getUIContext().getPromptAction().showToast({ message: 'PDF 生成失败，请重试', duration: 2000 });
+      return;
+    }
+    await this.shareExportedFile(filePath, fileName, '报销单 PDF 导出');
   }
 
   private async exportBills(type: 'currentMonth' | 'all') {
@@ -7198,9 +9365,10 @@ struct Index {
   }
 
   // ---------- 打开弹窗 ----------
-  openAddDialog() {
+  // presetAmount：可选预填金额（剪贴板识别到金额后带值打开）
+  openAddDialog(presetAmount?: string) {
     // 半模态弹层：内容随 sheet 显隐构建/销毁，分类列表每次打开都是当前账本的
-    this.actionSheetType = 'add';
+    this.addPresetAmount = presetAmount !== undefined ? presetAmount : '';
     this.showActionSheet = true;
   }
 
@@ -7226,12 +9394,6 @@ struct Index {
       closeAnimation: this.dialogCloseAnimation
     });
     this.detailDialogController.open();
-  }
-
-  openSearchDialog() {
-    // 半模态弹层：账单列表随 sheet 构建时传入，始终为最新数据
-    this.actionSheetType = 'search';
-    this.showActionSheet = true;
   }
 
   showExportDialog() {
@@ -7300,7 +9462,8 @@ struct Index {
     let startAngle = -Math.PI / 2;
     for (let i = 0; i < data.length; i++) {
       const item = data[i];
-      const sliceAngle = (item.total / totalExpense) * 2 * Math.PI;
+      // 入场动画：扇形角度乘以揭示进度，饼图随进度顺时针扫入
+      const sliceAngle = (item.total / totalExpense) * 2 * Math.PI * this.statRevealProgress;
       ctx.beginPath();
       ctx.moveTo(centerX, centerY);
       ctx.arc(centerX, centerY, radius, startAngle, startAngle + sliceAngle);
@@ -7374,6 +9537,12 @@ struct Index {
 
     if (points.length < 2) return;
 
+    // 入场动画：按揭示进度从左向右裁剪折线/面积/数据点（进度 1 时完整显示）
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, padding.left + this.statRevealProgress * chartWidth, canvasHeight);
+    ctx.clip();
+
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
     for (let i = 1; i < points.length; i++) {
@@ -7412,6 +9581,7 @@ struct Index {
       ctx.lineWidth = 2.5;
       ctx.stroke();
     }
+    ctx.restore();
 
     const labelStep = data.length <= 8 ? 1 : Math.max(3, Math.floor(data.length / 6));
     for (let i = 0; i < data.length; i += labelStep) {
@@ -7463,7 +9633,7 @@ struct Index {
     const barWidth = chartWidth / 12 * 0.6;
     for (let i = 0; i < 12; i++) {
       const x = padding.left + (i / 12) * chartWidth + (chartWidth / 12 - barWidth) / 2;
-      const barHeight = (monthlyData[i] / maxAmount) * chartHeight;
+      const barHeight = (monthlyData[i] / maxAmount) * chartHeight * this.statRevealProgress;
       const y = padding.top + chartHeight - barHeight;
 
       ctx.fillStyle = monthlyData[i] > 0 ? '#FF6B6B' : palette.track;
@@ -7488,6 +9658,50 @@ struct Index {
         this.drawTrendChart();
       }, 50);
     }
+  }
+
+  // 统计页图表入场动画：animator 帧回调逐帧更新揭示进度 0→1
+  // （animateTo 只插值可动画属性、不逐帧更新普通状态变量，故必须用帧动画驱动 @Watch 重绘）
+  private statRevealAnimator: AnimatorResult | null = null;
+
+  playStatReveal() {
+    this.statRevealProgress = 0;
+    if (this.statRevealAnimator !== null) {
+      this.statRevealAnimator.cancel();
+      this.statRevealAnimator = null;
+    }
+    try {
+      const options: AnimatorOptions = {
+        duration: 1000,
+        easing: 'fast-out-slow-in',
+        delay: 60,
+        fill: 'forwards',
+        direction: 'normal',
+        iterations: 1,
+        begin: 0,
+        end: 1
+      };
+      const result: AnimatorResult = this.getUIContext().createAnimator(options);
+      result.onFrame = (value: number) => {
+        this.statRevealProgress = value;
+      };
+      result.onFinish = () => {
+        this.statRevealProgress = 1;
+        this.statRevealAnimator = null;
+      };
+      this.statRevealAnimator = result;
+      result.play();
+    } catch (e) {
+      // 帧动画创建失败时直接完成揭示，保证图表可用
+      this.statRevealProgress = 1;
+    }
+  }
+
+  // 揭示进度逐帧回调：重绘三个图表实现扫入/揭示/长高动画
+  onStatRevealFrame() {
+    this.drawPieChart();
+    this.drawTrendChart();
+    this.drawYearlyTrendChart();
   }
 
   // ---------- 数据迁移 ----------
@@ -7598,8 +9812,8 @@ struct Index {
       .width('100%')
       .padding(16)
       .backgroundColor($r('app.color.card_bg'))
-      .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-      .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+      .borderRadius(18)
+      .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
       .margin({ bottom: 16 })
       .scale({ x: this.pressedCard === 'budget' ? 0.96 : 1, y: this.pressedCard === 'budget' ? 0.96 : 1 })
       .animation({ curve: AnimationConfig.SPRING })
@@ -7632,8 +9846,8 @@ struct Index {
       .width('100%')
       .padding(16)
       .backgroundColor($r('app.color.card_bg'))
-      .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-      .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+      .borderRadius(18)
+      .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
       .margin({ bottom: 16 })
       .scale({ x: this.pressedCard === 'budget' ? 0.96 : 1, y: this.pressedCard === 'budget' ? 0.96 : 1 })
       .animation({ curve: AnimationConfig.SPRING })
@@ -7657,6 +9871,18 @@ struct Index {
     this.loadUserProgress();  // 从成就页返回时刷新等级/经验显示
     this.loadReminderData();  // 回到页面时刷新提醒（财富页可能改了信用账户/存钱目标）
     this.consumePrivacyRelockSignal();  // 应用回到前台时重新锁定（隐私锁）
+    // 剪贴板金额识别：回到应用时读取剪贴板，识别到金额提示"去记账"（同一内容只提示一次）
+    this.checkClipboardAmount();
+
+    // 搜索页跳转信号：点击搜索结果返回后打开对应账单详情（消费即清零）
+    const pendingDetailId: number = AppStorage.get<number>('pending_detail_bill_id') || 0;
+    if (pendingDetailId > 0) {
+      AppStorage.setOrCreate('pending_detail_bill_id', 0);
+      const target: BillItem | undefined = this.bills.find((b: BillItem) => b.id === pendingDetailId);
+      if (target !== undefined) {
+        this.openDetailDialog(target);
+      }
+    }
 
     const refreshFlag = AppStorage.get<number>('shouldRefreshBills') || 0;
     if (refreshFlag !== this.lastRefreshFlag) {
@@ -7867,33 +10093,47 @@ struct Index {
     .padding({ left: 16, right: 16 })
   }
 
-  // ---------- 记一笔 / 搜索账单半模态弹层（共用，按类型切换内容） ----------
+  // ---------- 记一笔半模态弹层（搜索已迁移至全屏搜索页 SearchPage） ----------
   @Builder
   ActionSheetBuilder() {
-    if (this.actionSheetType === 'add') {
-      AddBillSheetContent({
-        categories: this.getCurrentLedgerCategories(),
-        onAddBill: (name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[], photos: string[]) => {
-          this.addBill(name, amount, type, date, category, source, tags, photos);
-        },
-        onClose: () => {
-          this.showActionSheet = false;
-        }
-      })
-    } else {
-      SearchBillSheetContent({
-        bills: this.bills,
-        onSelectBill: (bill: BillItem) => {
-          const d = new Date(bill.date);
-          this.currentYear = d.getFullYear();
-          this.currentMonth = d.getMonth() + 1;
-          this.openDetailDialog(bill);
-        },
-        onClose: () => {
-          this.showActionSheet = false;
-        }
-      })
-    }
+    AddBillSheetContent({
+      categories: this.getCurrentLedgerCategories(),
+      presetAmount: this.addPresetAmount,
+      onAddBill: (name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[], photos: string[], location: string) => {
+        this.addBill(name, amount, type, date, category, source, tags, photos, location);
+      },
+      onClose: () => {
+        this.showActionSheet = false;
+      }
+    })
+  }
+
+  // ---------- 账单筛选半模态弹层（类型/分类/来源/金额区间/日期范围） ----------
+  @Builder
+  BillFilterBuilder() {
+    BillFilterSheetContent({
+      categories: this.getCurrentLedgerCategories(),
+      initType: this.billFilterType,
+      initCategory: this.billFilterCategory,
+      initSource: this.billFilterSource,
+      initAmountMin: this.billFilterAmountMin,
+      initAmountMax: this.billFilterAmountMax,
+      initDateStart: this.billFilterDateStart,
+      initDateEnd: this.billFilterDateEnd,
+      onApply: (type: string, category: string, source: string, amountMin: string, amountMax: string, dateStart: number, dateEnd: number) => {
+        this.billFilterType = type;
+        this.billFilterCategory = category;
+        this.billFilterSource = source;
+        this.billFilterAmountMin = amountMin;
+        this.billFilterAmountMax = amountMax;
+        this.billFilterDateStart = dateStart;
+        this.billFilterDateEnd = dateEnd;
+        hapticTick();
+      },
+      onClose: () => {
+        this.showBillFilterSheet = false;
+      }
+    })
   }
 
   // ---------- 编辑账单半模态弹层（与记一笔一致的弹出效果） ----------
@@ -7910,15 +10150,31 @@ struct Index {
         paramSource: this.editSheetBill.source || '现金',
         paramTags: this.editSheetBill.tags || [],
         paramPhotoUris: this.editSheetBill.photoUris || [],
+        paramLocation: this.editSheetBill.locationName !== undefined ? this.editSheetBill.locationName : '',
         categories: this.getCurrentLedgerCategories(),
-        onUpdateBill: (id: number, name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[], photos: string[]) => {
-          this.updateBill(id, name, amount, type, date, category, source, tags, photos);
+        onUpdateBill: (id: number, name: string, amount: number, type: '收入' | '支出', date: Date, category: string, source: string, tags: string[], photos: string[], location: string) => {
+          this.updateBill(id, name, amount, type, date, category, source, tags, photos, location);
         },
         onClose: () => {
           this.showEditSheet = false;
         }
       })
     }
+  }
+
+  // ---------- 报销包导出半模态弹层 ----------
+  @Builder
+  ExpensePackSheetBuilder() {
+    ExpensePackSheetContent({
+      bills: this.getExpensePackBills(),
+      onExport: (ids: number[], format: string) => {
+        this.showExpensePackSheet = false;
+        this.exportExpensePack(ids, format);
+      },
+      onClose: () => {
+        this.showExpensePackSheet = false;
+      }
+    })
   }
 
   // ---------- 隐私锁锁屏构建器 ----------
@@ -8278,6 +10534,39 @@ struct Index {
     // Navigation 重构：主界面为 NavBar（Stack 模式），子页面经系统路由表（router_map.json）压入
     Navigation(this.pathStack) {
     Stack() {
+      // 背景装饰层：品牌色渐变光斑（静态渲染，无逐帧开销），为玻璃质感卡片提供底色
+      Column() {
+        Column()
+          .width(340)
+          .height(340)
+          .borderRadius(170)
+          .radialGradient({
+            center: [170, 170],
+            radius: 170,
+            colors: [[withAlpha(this.brandLight, '59'), 0], [withAlpha(this.brandLight, '00'), 1]]
+          })
+          .position({ x: '58%', y: -90 })
+
+        Column()
+          .width(420)
+          .height(420)
+          .borderRadius(210)
+          .radialGradient({
+            center: [210, 210],
+            radius: 210,
+            colors: [[withAlpha(this.brandDeep, '40'), 0], [withAlpha(this.brandDeep, '00'), 1]]
+          })
+          .position({ x: -140, y: '58%' })
+      }
+      .width('100%')
+      .height('100%')
+      .backgroundColor($r('app.color.bg_main'))
+      .linearGradient({
+        angle: 165,
+        colors: [[withAlpha(this.brandTint, 'B3'), 0], [withAlpha(this.brandTint, '00'), 0.5]]
+      })
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+
       Column() {
       HdsTabs({ barPosition: this.isWideScreen ? BarPosition.Start : BarPosition.End, index: this.currentTabIndex }) {
         // ============================================
@@ -8289,7 +10578,7 @@ struct Index {
             Row()
               .width('100%')
               .height(this.statusBarVp + 10)
-              .backgroundColor($r('app.color.bg_main'))
+              .backgroundColor(Color.Transparent)
               .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
               .flexShrink(0)
 
@@ -8398,7 +10687,7 @@ struct Index {
               .width(34).height(34)
               .backgroundColor($r('app.color.category_btn_bg'))
               .borderColor($r('app.color.border_color')).borderWidth(1).borderRadius(17)
-              .onClick(() => { this.openSearchDialog(); })
+              .onClick(() => { this.pathStack.pushPathByName('SearchPage', undefined); })
 
               Blank().width(14)
 
@@ -8453,7 +10742,7 @@ struct Index {
                 angle: 135,
                 colors: [[this.brandLight, 0], [this.brandMain, 0.55], [this.brandDeep, 1]]
               })
-              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+              .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
               .layoutWeight(1)
               .scale({ x: this.pressedCard === 'totalAsset' ? 0.96 : 1, y: this.pressedCard === 'totalAsset' ? 0.96 : 1 })
               .animation({ curve: AnimationConfig.SPRING })
@@ -8485,8 +10774,8 @@ struct Index {
               .width('100%')
               .padding({ top: 16, bottom: 16, left: 16, right: 16 })
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
-              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+              .borderRadius(22)
+              .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
               .layoutWeight(1)
               .scale({ x: this.pressedCard === 'monthChange' ? 0.96 : 1, y: this.pressedCard === 'monthChange' ? 0.96 : 1 })
               .animation({ curve: AnimationConfig.SPRING })
@@ -8605,7 +10894,7 @@ struct Index {
                       .width('100%')
                       .padding({ top: 14, left: 16, bottom: 14, right: 12 })
                       .backgroundColor($r('app.color.card_bg'))
-                      .borderRadius({ topLeft: 14, topRight: 11, bottomLeft: 13, bottomRight: 15 })
+                      .borderRadius(14)
                       .shadow({ radius: 6, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 2 })
                       .margin({ bottom: 8 })
                       .scale({ x: this.pressedBillId === item.id ? 0.96 : 1, y: this.pressedBillId === item.id ? 0.96 : 1 })
@@ -8642,8 +10931,8 @@ struct Index {
             .width('100%')
             .layoutWeight(1)
             .backgroundColor($r('app.color.card_bg'))
-            .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-            .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+            .borderRadius(18)
+            .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
             .margin({ bottom: 16 })
             .translate({ x: this.homeContentShiftX })
             .opacity(this.homeContentAlpha)
@@ -8651,7 +10940,7 @@ struct Index {
             .width('100%')
             .height('100%')
             .padding({ left: 20, right: 20})
-            .backgroundColor($r('app.color.bg_main'))
+            .backgroundColor(Color.Transparent)
             .constraintSize({ maxWidth: this.isWideScreen ? 640 : '100%' })
           }
           .width('100%')
@@ -8666,10 +10955,12 @@ struct Index {
         TabContent() {
           Row() {
           Column() {
+            // 顶部玻璃栏：初始全透明，随内容滚动渐显毛玻璃+发丝线（系统应用式透明过渡）
+            Column() {
             Row()
               .width('100%')
               .height(this.statusBarVp + 10)
-              .backgroundColor($r('app.color.bg_main'))
+              .backgroundColor(Color.Transparent)
               .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
               .flexShrink(0)
 
@@ -8762,6 +11053,15 @@ struct Index {
             }
             .width('100%')
             .margin({ bottom: 12 })
+            }
+            .width('100%')
+            .backgroundEffect({
+              // 模糊半径随滚动渐增：顶部 0（完全透明直透背景光斑）→ 40vp 毛玻璃
+              radius: this.statsHeaderGlass * 40,
+              color: this.headerPlateBg(this.statsHeaderGlass)
+            })
+            .border({ width: { bottom: 1 }, color: this.headerPlateLine(this.statsHeaderGlass) })
+            .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
 
 
 
@@ -8843,9 +11143,9 @@ struct Index {
                 }
                 .width('100%')
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                .borderRadius(18)
                 .padding(16)
-                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
                 .margin({ bottom: 16 })
 
                 Column() {
@@ -8928,9 +11228,9 @@ struct Index {
                 }
                 .width('100%')
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                .borderRadius(18)
                 .padding(16)
-                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
                 .margin({ bottom: 16 })
 
 
@@ -8964,9 +11264,9 @@ struct Index {
                 }
                 .width('100%')
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                .borderRadius(18)
                 .padding(16)
-                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
                 .margin({ bottom: 16 })
 
 
@@ -9033,9 +11333,9 @@ struct Index {
                 }
                 .width('100%')
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                .borderRadius(18)
                 .padding(16)
-                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
                 .margin({ bottom: 16 })
 
                 Row()
@@ -9052,11 +11352,15 @@ struct Index {
             .layoutWeight(1)
             .scrollBar(BarState.Off)
             .edgeEffect(EdgeEffect.Spring)
+            .onDidScroll((scrollOffset: number, scrollState: ScrollState) => {
+              // 滚动联动玻璃栏：56vp 行程内完成 透明→毛玻璃 过渡
+              this.statsHeaderGlass = Math.max(0, Math.min(1, this.statsHeaderGlass + scrollOffset / 56));
+            })
           }
           .width('100%')
           .height('100%')
           .padding({ left: 20, right: 20})
-          .backgroundColor($r('app.color.bg_main'))
+          .backgroundColor(Color.Transparent)
           .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
           .constraintSize({ maxWidth: this.isWideScreen ? 640 : '100%' })
           }
@@ -9072,10 +11376,12 @@ struct Index {
         TabContent() {
           Row() {
           Column() {
+            // 顶部玻璃栏：初始全透明，随内容滚动渐显毛玻璃+发丝线（系统应用式透明过渡）
+            Column() {
             Row()
               .width('100%')
               .height(this.statusBarVp + 10)
-              .backgroundColor($r('app.color.bg_main'))
+              .backgroundColor(Color.Transparent)
               .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
               .flexShrink(0)
 
@@ -9136,26 +11442,70 @@ struct Index {
             }
             .width('100%')
             .margin({ top: 10, bottom: 12 })
+            }
+            .width('100%')
+            .backgroundEffect({
+              // 模糊半径随滚动渐增：顶部 0（完全透明直透背景光斑）→ 40vp 毛玻璃
+              radius: this.billsHeaderGlass * 40,
+              color: this.headerPlateBg(this.billsHeaderGlass)
+            })
+            .border({ width: { bottom: 1 }, color: this.headerPlateLine(this.billsHeaderGlass) })
+            .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
 
             if (this.billViewMode === 'list') {
             Column() {
-            // 月份切换（仅列表模式）：从标题栏移到内容区顶部，避免与日历视图切换控件冲突
+            // 月份切换 + 筛选入口（仅列表模式）：从标题栏移到内容区顶部，避免与日历视图切换控件冲突
             Row() {
+              // 筛选：类型/分类/来源/金额区间/日期范围（跨月）；有条件生效时高亮
+              Button() {
+                Row({ space: 4 }) {
+                  SymbolGlyph($r('sys.symbol.line_3_horizontal'))
+                    .fontSize(16)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor([this.hasActiveBillFilters() ? this.brandMain : $r('app.color.text_secondary')])
+                  Text('筛选')
+                    .fontSize(13)
+                    .fontWeight(this.hasActiveBillFilters() ? FontWeight.Bold : FontWeight.Normal)
+                    .fontColor(this.hasActiveBillFilters() ? this.brandMain : $r('app.color.text_secondary'))
+                }
+              }
+              .backgroundColor($r('app.color.card_bg'))
+              .border({
+                width: 1,
+                color: this.hasActiveBillFilters() ? this.brandMain : $r('app.color.border_color')
+              })
+              .borderRadius(19)
+              .height(38)
+              .padding({ left: 14, right: 14 })
+              .margin({ right: 8 })
+              .onClick(() => { this.showBillFilterSheet = true; })
+              .bindSheet($$this.showBillFilterSheet, this.BillFilterBuilder(), {
+                detents: [SheetSize.MEDIUM, SheetSize.LARGE]
+              })
+
+              Blank()
+
               Row() {
                 SymbolGlyph($r('sys.symbol.chevron_left'))
                   .fontSize(18)
                   .fontWeight(FontWeight.Medium)
                   .fontColor([this.brandMain])
+                  .visibility(this.billFilterRangeActive() ? Visibility.None : Visibility.Visible)
                   .onClick(() => { this.goBillPrevMonth(); })
                   .padding({ left: 10, right: 4, top: 8, bottom: 8 })
 
-                Text(`${this.billViewYear}年${this.billViewMonth}月`)
+                Text(this.getBillViewRangeLabel())
                   .fontSize(14)
                   .fontWeight(FontWeight.Medium)
                   .fontColor($r('app.color.text_primary'))
-                  .width(84)
+                  .constraintSize({ minWidth: 84 })
                   .textAlign(TextAlign.Center)
                   .onClick(() => {
+                    // 自定义范围生效时点击标题回到筛选面板调整
+                    if (this.billFilterRangeActive()) {
+                      this.showBillFilterSheet = true;
+                      return;
+                    }
                     this.monthPickerController = new CustomDialogController({
                       builder: MonthPickerDialog({
                         selectedDate: new Date(this.billViewYear, this.billViewMonth - 1, 1),
@@ -9176,6 +11526,7 @@ struct Index {
                   .fontSize(18)
                   .fontWeight(FontWeight.Medium)
                   .fontColor([this.brandMain])
+                  .visibility(this.billFilterRangeActive() ? Visibility.None : Visibility.Visible)
                   .onClick(() => { this.goBillNextMonth(); })
                   .padding({ left: 4, right: 10, top: 8, bottom: 8 })
               }
@@ -9185,7 +11536,6 @@ struct Index {
               .backgroundColor($r('app.color.card_bg'))
             }
             .width('100%')
-            .justifyContent(FlexAlign.End)
             .margin({ bottom: 12 })
 
             // 标签筛选（无标签时隐藏）
@@ -9231,7 +11581,34 @@ struct Index {
               .opacity(this.billContentAlpha)
             }
 
-            // ===== 按日期分组的账单列表 =====
+            // ===== 按日期分组的账单列表：首屏骨架 → 空状态 → 真实列表 =====
+            if (!this.firstLoadDone) {
+              // 首屏加载中：骨架屏占位
+              Scroll() {
+                BillListSkeleton()
+              }
+              .width('100%')
+              .layoutWeight(1)
+              .align(Alignment.Top)
+              .scrollBar(BarState.Off)
+              .edgeEffect(EdgeEffect.None)
+              .translate({ x: this.billContentShiftX })
+              .opacity(this.billContentAlpha)
+            } else if (this.getBillDayGroups().length === 0) {
+              // 本月无账单：空状态引导
+              Column() {
+                EmptyState({
+                  emptyTitle: '本月暂无账单',
+                  emptySubtitle: '点击下方 + 记一笔吧',
+                  iconTint: this.brandMain
+                })
+              }
+              .width('100%')
+              .layoutWeight(1)
+              .justifyContent(FlexAlign.Center)
+              .translate({ x: this.billContentShiftX })
+              .opacity(this.billContentAlpha)
+            } else {
             List() {
               // 未固定时：汇总卡作为列表第一项，下滑即滚走，账单可视面积更大
               if (!this.billSummaryPinned) {
@@ -9349,8 +11726,8 @@ struct Index {
                   }
                   .width('100%')
                   .backgroundColor($r('app.color.card_bg'))
-                  .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-                  .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                  .borderRadius(18)
+                  .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
                   .translate({
                     // 距中心越远的卡片偏移越大 → 卡片间距随滚动弹性伸缩
                     y: Math.max(-4, Math.min(4, groupIdx - this.billListCenterIdx)) * this.billGapStretch
@@ -9385,11 +11762,14 @@ struct Index {
               // 滚动速度越大间距拉伸越明显，限制最大幅度
               const target: number = Math.max(-6, Math.min(6, scrollOffset * 0.45));
               this.billGapStretch = this.billGapStretch * 0.5 + target * 0.5;
+              // 滚动联动玻璃栏：56vp 行程内完成 透明→毛玻璃 过渡
+              this.billsHeaderGlass = Math.max(0, Math.min(1, this.billsHeaderGlass + scrollOffset / 56));
             })
             .onScrollStop(() => {
               // 停止滚动时间距弹回原状
               this.billGapStretch = 0;
             })
+            }
             }
             .width('100%')
             .layoutWeight(1)
@@ -9411,7 +11791,7 @@ struct Index {
           .width('100%')
           .height('100%')
           .padding({ left: 20, right: 20 })
-          .backgroundColor($r('app.color.bg_main'))
+          .backgroundColor(Color.Transparent)
           .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
           .constraintSize({ maxWidth: this.isWideScreen ? 640 : '100%' })
           }
@@ -9448,11 +11828,13 @@ struct Index {
         TabContent() {
           Row() {
           Column() {
+            // 顶部玻璃栏：初始全透明，随内容滚动渐显毛玻璃+发丝线（系统应用式透明过渡）
+            Column() {
             // 状态栏占位
             Row()
               .width('100%')
               .height(this.statusBarVp + 10)
-              .backgroundColor($r('app.color.bg_main'))
+              .backgroundColor(Color.Transparent)
               .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
               .flexShrink(0)
             Row() {
@@ -9464,6 +11846,15 @@ struct Index {
             }
             .width('100%')
             .margin({ top: 10, bottom: 8 })
+            }
+            .width('100%')
+            .backgroundEffect({
+              // 模糊半径随滚动渐增：顶部 0（完全透明直透背景光斑）→ 40vp 毛玻璃
+              radius: this.profileHeaderGlass * 40,
+              color: this.headerPlateBg(this.profileHeaderGlass)
+            })
+            .border({ width: { bottom: 1 }, color: this.headerPlateLine(this.profileHeaderGlass) })
+            .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
 
             // 可滚动内容
             Scroll() {
@@ -9493,7 +11884,7 @@ struct Index {
                     angle: 135,
                     colors: [[this.brandLight, 0], [this.brandMain, 0.6], [this.brandDeep, 1]]
                   })
-                  .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                  .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
                   .justifyContent(FlexAlign.Center)
                   .margin({ right: 16 })
                   .onClick(() => {
@@ -9581,8 +11972,8 @@ struct Index {
                   right: 20
                 })
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                .borderRadius(18)
+                .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
                 .margin({ top: 12,bottom: 16 })
                 .onClick(() => {
                   this.pathStack.pushPathByName('AchievementPage', undefined);
@@ -9604,7 +11995,7 @@ struct Index {
                   .width('100%')
                   .padding({ top: 12, bottom: 12 })
                   .backgroundColor($r('app.color.card_bg'))
-                  .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                  .borderRadius(18)
                   .shadow({
                     radius: 4,
                     color: $r('app.color.shadow_color'),
@@ -9641,7 +12032,7 @@ struct Index {
                   .width('100%')
                   .padding({ top: 12, bottom: 12 })
                   .backgroundColor($r('app.color.card_bg'))
-                  .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                  .borderRadius(18)
                   .shadow({
                     radius: 4,
                     color: $r('app.color.shadow_color'),
@@ -9666,7 +12057,7 @@ struct Index {
                   .width('100%')
                   .padding({ top: 12, bottom: 12 })
                   .backgroundColor($r('app.color.card_bg'))
-                  .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
+                  .borderRadius(18)
                   .shadow({
                     radius: 4,
                     color: $r('app.color.shadow_color'),
@@ -9678,7 +12069,7 @@ struct Index {
                 .width('100%')
                 .margin({ bottom: 16 })
 
-                // ===== 3. 功能入口网格（2×3） =====
+                // ===== 3. 功能入口网格（2×4） =====
                 Column() {
                   Row() {
                     this.FunctionItem($r('sys.symbol.doc_text_on_doc_text'), '数据备份', () => {
@@ -9689,6 +12080,9 @@ struct Index {
                     })
                     this.FunctionItem($r('sys.symbol.share'), '导出账单', () => {
                       this.showExportDialog();
+                    })
+                    this.FunctionItem($r('sys.symbol.doc_zipper'), '报销包', () => {
+                      this.openExpensePackSheet();
                     })
                   }
                   .width('100%')
@@ -9704,14 +12098,18 @@ struct Index {
                     this.FunctionItem($r('sys.symbol.label'), '标签管理', () => {
                       this.pathStack.pushPathByName('TagManagePage', undefined);
                     })
+                    // 占位格：保持两行单元格宽度一致
+                    Column()
+                      .layoutWeight(1)
+                      .margin({ left: 4, right: 4 })
                   }
                   .width('100%')
                 }
                 .width('100%')
                 .padding({ left: 12, right: 12, top: 16, bottom: 16 })
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                .borderRadius(18)
+                .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
                 .margin({ bottom: 16 })
 
                 // ===== 4. 设置列表 =====
@@ -9902,6 +12300,55 @@ struct Index {
                   .padding({ top: 14, bottom: 14 })
                   .border({ width: { bottom: 1 }, color: $r('app.color.border_color') })
 
+                  // 字体大小（适老模式）：标准 / 大 / 特大三档，通过应用级字体缩放全局生效
+                  Row() {
+                    SymbolGlyph($r('sys.symbol.textformat_size_square'))
+                      .fontSize(20)
+                      .fontColor([$r('app.color.text_secondary')])
+                      .margin({ right: 8 })
+                    Text('字体大小')
+                      .fontSize(16)
+                      .fontColor($r('app.color.text_primary'))
+                      .layoutWeight(1)
+
+                    Row() {
+                      Row() {
+                        Text('标准')
+                          .fontSize(14)
+                          .fontColor(this.fontScaleValue === 1.0 ? this.brandMain : $r('app.color.text_secondary'))
+                          .fontWeight(this.fontScaleValue === 1.0 ? FontWeight.Bold : FontWeight.Normal)
+                          .padding({ left: 14, right: 14, top: 5, bottom: 5 })
+                          .borderRadius(14)
+                          .backgroundColor(this.fontScaleValue === 1.0 ? $r('app.color.card_bg') : Color.Transparent)
+                          .onClick(() => { this.switchFontScale(1.0); })
+
+                        Text('大')
+                          .fontSize(14)
+                          .fontColor(this.fontScaleValue === 1.15 ? this.brandMain : $r('app.color.text_secondary'))
+                          .fontWeight(this.fontScaleValue === 1.15 ? FontWeight.Bold : FontWeight.Normal)
+                          .padding({ left: 14, right: 14, top: 5, bottom: 5 })
+                          .borderRadius(14)
+                          .backgroundColor(this.fontScaleValue === 1.15 ? $r('app.color.card_bg') : Color.Transparent)
+                          .onClick(() => { this.switchFontScale(1.15); })
+
+                        Text('特大')
+                          .fontSize(14)
+                          .fontColor(this.fontScaleValue === 1.3 ? this.brandMain : $r('app.color.text_secondary'))
+                          .fontWeight(this.fontScaleValue === 1.3 ? FontWeight.Bold : FontWeight.Normal)
+                          .padding({ left: 14, right: 14, top: 5, bottom: 5 })
+                          .borderRadius(14)
+                          .backgroundColor(this.fontScaleValue === 1.3 ? $r('app.color.card_bg') : Color.Transparent)
+                          .onClick(() => { this.switchFontScale(1.3); })
+                      }
+                      .padding(3)
+                      .backgroundColor($r('app.color.category_btn_bg'))
+                      .borderRadius(17)
+                    }
+                  }
+                  .width('100%')
+                  .padding({ top: 14, bottom: 14 })
+                  .border({ width: { bottom: 1 }, color: $r('app.color.border_color') })
+
                   // 主题颜色
                   Row() {
                     // 当前主题色预览圆点
@@ -9997,6 +12444,43 @@ struct Index {
                       }
                       .width('100%')
                       .padding({ bottom: 14 })
+                    }
+                  }
+                  .width('100%')
+                  .border({ width: { bottom: 1 }, color: $r('app.color.border_color') })
+
+                  // 摇一摇快捷记账：开关默认关闭，首次开启弹引导确认
+                  Column() {
+                    Row() {
+                      SymbolGlyph($r('sys.symbol.waveform'))
+                        .fontSize(20)
+                        .fontColor([$r('app.color.text_secondary')])
+                        .margin({ right: 8 })
+                      Text('摇一摇快捷记账')
+                        .fontSize(16)
+                        .fontColor($r('app.color.text_primary'))
+                        .layoutWeight(1)
+                      Toggle({ type: ToggleType.Switch, isOn: this.shakeQuickAddEnabled })
+                        .onChange((isOn: boolean) => {
+                          if (isOn === this.shakeQuickAddEnabled) {
+                            return;
+                          }
+                          if (isOn) {
+                            // 首次开启：先引导确认，取消则不开启
+                            this.confirmEnableShakeQuickAdd();
+                          } else {
+                            this.applyShakeQuickAdd(false);
+                          }
+                        })
+                    }
+                    .width('100%')
+                    .padding({ top: 14, bottom: 14 })
+
+                    if (this.shakeQuickAddEnabled) {
+                      Text('摇一摇手机即可快速打开「记一笔」')
+                        .fontSize(13)
+                        .fontColor($r('app.color.text_secondary'))
+                        .padding({ bottom: 12 })
                     }
                   }
                   .width('100%')
@@ -10125,8 +12609,8 @@ struct Index {
                 .width('100%')
                 .padding({ left: 16, right: 16, top: 16, bottom: 16 })
                 .backgroundColor($r('app.color.card_bg'))
-                .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-                .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+                .borderRadius(18)
+                .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
                 .margin({ bottom: 16 })
 
                 // ===== 5. 底部版本信息 =====
@@ -10150,11 +12634,15 @@ struct Index {
             .layoutWeight(1)
             .scrollBar(BarState.Off)
             .edgeEffect(EdgeEffect.Spring)
+            .onDidScroll((scrollOffset: number, scrollState: ScrollState) => {
+              // 滚动联动玻璃栏：56vp 行程内完成 透明→毛玻璃 过渡
+              this.profileHeaderGlass = Math.max(0, Math.min(1, this.profileHeaderGlass + scrollOffset / 56));
+            })
           }
           .width('100%')
           .height('100%')
           .padding({ left: 20, right: 20 })
-          .backgroundColor($r('app.color.bg_main'))
+          .backgroundColor(Color.Transparent)
           .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
           .constraintSize({ maxWidth: this.isWideScreen ? 640 : '100%' })
           }
@@ -10169,7 +12657,7 @@ struct Index {
 
       .width('100%')
       .height('100%')
-      .backgroundColor($r('app.color.bg_main'))
+      .backgroundColor(Color.Transparent)
       .barOverlap(!this.isWideScreen)
       .vertical(this.isWideScreen)
       .barFloatingStyle(this.getTabBarFloatingStyle())
@@ -10189,10 +12677,8 @@ struct Index {
         });
         if (index === 1) {
           this.updateStatSummary();
-          setTimeout(() => {
-            this.drawPieChart();
-            this.drawTrendChart();
-          }, 50);
+          // 图表入场动画：揭示进度 0→1，@Watch 逐帧重绘饼图/趋势/年度图
+          this.playStatReveal();
         }
       })
       .bindSheet($$this.showActionSheet, this.ActionSheetBuilder(), {
@@ -10205,7 +12691,8 @@ struct Index {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor($r('app.color.bg_main'))
+    .backgroundColor(Color.Transparent)
+    .opacity(this.fontFadeOut ? 0 : 1)
     // 全屏沉浸式：状态栏避让由各 Tab 顶部占位条内部消化，背景延伸到状态栏下；
     // 底部悬浮页签栏抬到手势条上方（barBottomMargin = navBarVp），栏更高且不与小横杠重叠
 
@@ -10226,6 +12713,18 @@ struct Index {
         .width(0)
         .height(0)
         .bindSheet($$this.showEditSheet, this.EditSheetBuilder(), {
+          height: SheetSize.LARGE,
+          dragBar: true,
+          showClose: true,
+          backgroundColor: $r('app.color.glass_bg'),
+          blurStyle: BlurStyle.COMPONENT_THICK
+        })
+
+      // 报销包导出弹层宿主（独立零尺寸节点，避免 bindSheet 链式覆盖）
+      Column()
+        .width(0)
+        .height(0)
+        .bindSheet($$this.showExpensePackSheet, this.ExpensePackSheetBuilder(), {
           height: SheetSize.LARGE,
           dragBar: true,
           showClose: true,

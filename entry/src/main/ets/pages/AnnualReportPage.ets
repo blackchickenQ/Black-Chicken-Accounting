@@ -9,6 +9,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { getCategoryColor, AnimationConfig } from './Index';
 import { MotionCurves } from '../common/Motion';
 import { BrandSignals, DeviceSignals } from '../common/V2Signals';
+import { NetAssetSnapshot, NetAssetBill, loadNetAssetSnapshot, estimateNetAssetAt, monthEndTime } from '../common/NetAsset';
 
 interface ReportBill {
   id: number;
@@ -53,6 +54,9 @@ struct AnnualReportPage {
   @Local maxExpenseName: string = '';
   @Local maxExpenseAmount: number = 0;
   @Local monthExpenses: number[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  // 各月末净资产（估算，12 个月）与年末净资产：以当前净资产为基准按收支回推
+  @Local monthNetAssets: number[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  @Local netAssetYearEnd: number = 0;
   @Local peakMonthIdx: number = -1;
   @Local lowMonthIdx: number = -1;
   @Local categoryStats: CategoryStat[] = [];
@@ -216,6 +220,18 @@ struct AnnualReportPage {
       });
       this.categoryStats = stats;
 
+      // 年末及各月末净资产估算：以当前净资产为基准，按全部账单收支回推（假设收支均经资产账户）
+      const snapshot: NetAssetSnapshot = await loadNetAssetSnapshot(context);
+      const netBills: NetAssetBill[] = bills.map((b: ReportBill): NetAssetBill => {
+        return { amount: b.amount, type: b.type, date: b.date, ledgerId: b.ledgerId };
+      });
+      const monthNet: number[] = [];
+      for (let m = 1; m <= 12; m++) {
+        monthNet.push(estimateNetAssetAt(snapshot.net, netBills, monthEndTime(this.year, m)));
+      }
+      this.monthNetAssets = monthNet;
+      this.netAssetYearEnd = monthNet[11];
+
       // 消费洞察
       const tips: string[] = [];
       if (this.hasData) {
@@ -247,6 +263,18 @@ struct AnnualReportPage {
     }
   }
 
+  // 迷你柱图高度：按 12 个月末净资产绝对值等比缩放，最小 4vp
+  netBarHeight(value: number): number {
+    let maxAbs = 0;
+    for (const v of this.monthNetAssets) {
+      maxAbs = Math.max(maxAbs, Math.abs(v));
+    }
+    if (maxAbs <= 0) {
+      return 4;
+    }
+    return Math.max(4, Math.abs(value) / maxAbs * 64);
+  }
+
   // 分享年度账单文本摘要（写入缓存文件后走系统分享）
   async shareSummary(): Promise<void> {
     try {
@@ -258,6 +286,7 @@ struct AnnualReportPage {
       const lines: string[] = [];
       lines.push(`【${this.year}年乌鸡记账年度账单】`);
       lines.push(`全年支出 ¥${this.expenseTotal.toFixed(2)}｜收入 ¥${this.incomeTotal.toFixed(2)}｜结余 ¥${balance.toFixed(2)}`);
+      lines.push(`年末净资产（估算）¥${this.netAssetYearEnd.toFixed(2)}`);
       if (this.categoryStats.length > 0) {
         lines.push(`最大开销「${this.categoryStats[0].name}」占 ${this.categoryStats[0].percent.toFixed(1)}%`);
       }
@@ -582,6 +611,47 @@ struct AnnualReportPage {
                   .alignSelf(ItemAlign.Start)
                   .margin({ top: 8 })
               }
+            }
+            .width('100%')
+            .padding(16)
+            .backgroundColor($r('app.color.card_bg'))
+            .borderRadius(16)
+            .margin({ bottom: 12 })
+
+            // 净资产走势（估算）：年末净资产 + 12 个月月末净资产迷你柱图
+            Column() {
+              Text('净资产走势（估算）')
+                .fontSize(14)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_primary'))
+                .alignSelf(ItemAlign.Start)
+                .margin({ bottom: 4 })
+
+              Text(`${this.year}年末净资产 ¥${this.netAssetYearEnd.toFixed(2)}`)
+                .fontSize(12)
+                .fontColor($r('app.color.text_secondary'))
+                .alignSelf(ItemAlign.Start)
+                .margin({ bottom: 12 })
+
+              Row({ space: 4 }) {
+                ForEach(this.monthNetAssets, (v: number, idx: number) => {
+                  Column({ space: 4 }) {
+                    Column()
+                      .width(10)
+                      .height(this.netBarHeight(v))
+                      .borderRadius(3)
+                      .backgroundColor(v >= 0 ? $r('app.color.income_gold') : $r('app.color.expense_red'))
+                    Text(MONTH_LABELS[idx])
+                      .fontSize(9)
+                      .fontColor($r('app.color.text_secondary'))
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Center)
+                }, (v: number, idx: number) => idx.toString() + '_' + v.toFixed(0))
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Bottom)
+              .height(96)
             }
             .width('100%')
             .padding(16)

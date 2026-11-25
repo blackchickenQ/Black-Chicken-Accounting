@@ -1,6 +1,14 @@
 // ---------- 共享 UI 常量（调色板 / 图表配色） ----------
 import { BrandSignals } from './V2Signals';
 
+// 6 位品牌色叠加透明度：'#RRGGBB' + 'AA' → '#AARRGGBB'（ArkUI 8 位 hex 为 AARRGGBB）
+export function withAlpha(hex: string, alpha: string): string {
+  if (hex.length !== 7 || hex.charAt(0) !== '#') {
+    return hex;
+  }
+  return '#' + alpha + hex.substring(1);
+}
+
 // 资产/账单列表项色点调色板（15 色，按索引轮转）
 export const ASSET_PALETTE: string[] = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA94D', '#A29BFE',

@@ -64,6 +64,16 @@
       "buildFunction": "PlaygroundPageBuilder",
       "name": "PlaygroundPage",
       "pageSourceFile": "src/main/ets/pages/PlaygroundPage.ets"
+    },
+    {
+      "buildFunction": "SearchPageBuilder",
+      "name": "SearchPage",
+      "pageSourceFile": "src/main/ets/pages/SearchPage.ets"
+    },
+    {
+      "buildFunction": "EarningTimerPageBuilder",
+      "name": "EarningTimerPage",
+      "pageSourceFile": "src/main/ets/pages/EarningTimerPage.ets"
     }
   ]
 }

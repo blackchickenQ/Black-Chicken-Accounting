@@ -750,8 +750,8 @@ struct SavingGoalDetailPage {
           .width('100%')
           .padding(16)
           .backgroundColor($r('app.color.card_bg'))
-          .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
-          .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+          .borderRadius(22)
+          .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
           .margin({ top: 16 })
 
           // ===== 挑战进度卡（52周/30天挑战目标专属） =====
@@ -850,8 +850,8 @@ struct SavingGoalDetailPage {
             .width('100%')
             .padding(16)
             .backgroundColor($r('app.color.card_bg'))
-            .borderRadius({ topLeft: 22, topRight: 19, bottomLeft: 21, bottomRight: 23 })
-            .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+            .borderRadius(22)
+            .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
             .margin({ top: 12 })
           }
 
@@ -953,8 +953,8 @@ struct SavingGoalDetailPage {
               .alignItems(HorizontalAlign.Center)
               .padding({ top: 26, bottom: 26 })
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+              .borderRadius(18)
+              .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
             } else {
               // 时间轴：存入金色节点，日记灰色节点；存入附带的日记与金额同卡展示
               Column() {
@@ -1030,8 +1030,8 @@ struct SavingGoalDetailPage {
               .width('100%')
               .padding({ left: 14, right: 14, top: 10, bottom: 10 })
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius({ topLeft: 18, topRight: 15, bottomLeft: 17, bottomRight: 19 })
-              .shadow({ radius: 0, color: $r('app.color.ink_shadow'), offsetX: 3, offsetY: 3 }).border({ width: 1, color: $r('app.color.ink_line') })
+              .borderRadius(18)
+              .shadow({ radius: 20, color: $r('app.color.shadow_color'), offsetX: 0, offsetY: 8 }).border({ width: 1, color: $r('app.color.border_color') })
             }
           }
 

@@ -1,9 +1,15 @@
 // pages/MonthlyReportPage.ets
 import dataPreferences from '@ohos.data.preferences';
 import { common } from '@kit.AbilityKit';
+import { systemShare } from '@kit.ShareKit';
+import { fileIo as fs } from '@kit.CoreFileKit';
+import { fileUri } from '@kit.CoreFileKit';
+import { uniformTypeDescriptor as utd } from '@kit.ArkData';
+import { util } from '@kit.ArkTS';
 import { getCategoryColor, AnimationConfig } from './Index';
 import { MotionCurves } from '../common/Motion';
 import { BrandSignals, DeviceSignals } from '../common/V2Signals';
+import { NetAssetSnapshot, NetAssetBill, loadNetAssetSnapshot, estimateNetAssetAt, monthEndTime } from '../common/NetAsset';
 
 interface ReportBill {
   id: number;
@@ -60,11 +66,16 @@ struct MonthlyReportPage {
   @Local hasBudget: boolean = false;
   @Local budgetAmount: number = 0;
   @Local insights: string[] = [];
+  // 月末净资产（估算）：以当前净资产为基准按收支回推，UI 标注“估算”
+  @Local netAssetEnd: number = 0;
+  @Local netAssetPrevEnd: number = 0;
   // 月份切换动画状态：内容横向偏移与透明度（入场从右侧淡入，切月时方向性滑动）
   @Local contentShiftX: number = 40;
   @Local contentAlpha: number = 0;
   // 按压回弹：当前按下目标的 key
   @Local pressedChipKey: string = '';
+  // 分享海报生成中（防重复点击）
+  @Local posterGenerating: boolean = false;
   private monthSwitching: boolean = false;
 
   aboutToAppear() {
@@ -266,6 +277,17 @@ struct MonthlyReportPage {
         }
       }
 
+      // 月末/上月末净资产估算：以当前净资产为基准，按全部账单收支回推（假设收支均经资产账户）
+      const snapshot: NetAssetSnapshot = await loadNetAssetSnapshot(context);
+      const netBills: NetAssetBill[] = bills.map((b: ReportBill): NetAssetBill => {
+        return { amount: b.amount, type: b.type, date: b.date, ledgerId: b.ledgerId };
+      });
+      const monthEnd: number = monthEndTime(this.year, this.month);
+      const prevMonthEnd: number = this.month === 1 ?
+        monthEndTime(this.year - 1, 12) : monthEndTime(this.year, this.month - 1);
+      this.netAssetEnd = estimateNetAssetAt(snapshot.net, netBills, monthEnd);
+      this.netAssetPrevEnd = estimateNetAssetAt(snapshot.net, netBills, prevMonthEnd);
+
       const tips: string[] = [];
       if (this.hasData && stats.length > 0) {
         const top = stats[0];
@@ -333,6 +355,186 @@ struct MonthlyReportPage {
     .layoutWeight(1)
   }
 
+  // 海报副标题：支出环比文案
+  buildPosterSubline(): string {
+    if (this.prevExpenseTotal > 0) {
+      const pct = Math.abs((this.expenseTotal - this.prevExpenseTotal) / this.prevExpenseTotal * 100).toFixed(1);
+      return this.expenseTotal >= this.prevExpenseTotal ? `支出较上月上涨 ${pct}%` : `支出较上月下降 ${pct}%`;
+    }
+    return '本月总支出';
+  }
+
+  // 生成月报分享海报：离屏 Canvas 绘制品牌渐变卡片 → PNG → 系统分享面板
+  async generateSharePoster(): Promise<void> {
+    if (this.posterGenerating) {
+      return;
+    }
+    if (!this.hasData) {
+      this.getUIContext().getPromptAction().showToast({ message: '本月暂无账单，记账后再来生成海报', duration: 2000 });
+      return;
+    }
+    this.posterGenerating = true;
+    this.getUIContext().getPromptAction().showToast({ message: '正在生成海报…', duration: 1500 });
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    try {
+      // 画布尺寸与布局参数（大字号紧凑排版：减少留白、提高信息密度）
+      const canvasWidth = 750;
+      const padding = 40;
+      const heroHeight = 470;
+      const statsCardHeight = 160;
+      const cardGap = 28;
+      const maxBars = 5;
+      const bars: CategoryStat[] = this.categoryStats.slice(0, maxBars);
+      const barsCardHeight = 208 + (bars.length - 1) * 96;
+      const footerHeight = 120;
+      const canvasHeight = heroHeight + cardGap + statsCardHeight + cardGap + barsCardHeight + footerHeight;
+
+      const settings: RenderingContextSettings = new RenderingContextSettings(true);
+      const ctx: OffscreenCanvasRenderingContext2D = new OffscreenCanvasRenderingContext2D(canvasWidth, canvasHeight, settings);
+      ctx.textBaseline = 'top';
+
+      // 1. 页面背景
+      ctx.fillStyle = '#F4F6FB';
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+      // 2. 顶部品牌渐变区
+      const heroGradient = ctx.createLinearGradient(0, 0, canvasWidth, heroHeight);
+      heroGradient.addColorStop(0, this.brandLight);
+      heroGradient.addColorStop(0.55, this.brandMain);
+      heroGradient.addColorStop(1, this.brandDeep);
+      ctx.fillStyle = heroGradient;
+      ctx.fillRect(0, 0, canvasWidth, heroHeight);
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
+      ctx.font = '34px sans-serif';
+      ctx.fillText(`${this.year}年${this.month}月 · 账单总结`, padding, 56);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
+      ctx.font = '30px sans-serif';
+      ctx.fillText('本月支出', padding, 112);
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 112px sans-serif';
+      ctx.fillText('¥' + this.expenseTotal.toFixed(2), padding, 156);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
+      ctx.font = '32px sans-serif';
+      ctx.fillText(this.buildPosterSubline(), padding, 300);
+      ctx.fillText(`记账 ${this.billCount} 笔 · ${this.recordDays} 天`, padding, 352);
+
+      // 海报月末净资产行（36px 加粗，估算值）
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 36px sans-serif';
+      ctx.fillText(`月末净资产 ¥${this.netAssetEnd.toFixed(2)}（估算）`, padding, 400);
+
+      // 3. 收入 / 结余 / 日均 数据卡
+      const statsY = heroHeight + cardGap;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.roundRect(padding, statsY, canvasWidth - padding * 2, statsCardHeight, 28);
+      ctx.fill();
+
+      const balance = this.incomeTotal - this.expenseTotal;
+      const dailyAvg = this.recordDays > 0 ? this.expenseTotal / this.recordDays : 0;
+      const statLabels: string[] = ['本月收入', '本月结余', '日均支出'];
+      const statValues: string[] = [
+        '¥' + this.incomeTotal.toFixed(2),
+        (balance >= 0 ? '+' : '') + '¥' + balance.toFixed(2),
+        '¥' + dailyAvg.toFixed(2)
+      ];
+      const colWidth = (canvasWidth - padding * 2) / 3;
+      for (let i = 0; i < 3; i++) {
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#8A9099';
+        ctx.font = '26px sans-serif';
+        ctx.fillText(statLabels[i], padding + colWidth * i + 30, statsY + 32);
+        ctx.fillStyle = '#1F2329';
+        ctx.font = 'bold 36px sans-serif';
+        ctx.fillText(statValues[i], padding + colWidth * i + 30, statsY + 84);
+      }
+
+      // 4. 分类排行条形图卡
+      const barsY = statsY + statsCardHeight + cardGap;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.roundRect(padding, barsY, canvasWidth - padding * 2, barsCardHeight, 28);
+      ctx.fill();
+
+      ctx.fillStyle = '#1F2329';
+      ctx.font = 'bold 36px sans-serif';
+      ctx.fillText('分类排行', padding + 32, barsY + 34);
+
+      const barLeft = padding + 32;
+      const barRight = canvasWidth - padding - 32;
+      let barY = barsY + 104;
+      for (let i = 0; i < bars.length; i++) {
+        const stat = bars[i];
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#1F2329';
+        ctx.font = 'bold 32px sans-serif';
+        ctx.fillText(stat.name, barLeft, barY);
+        // 右侧金额 + 占比
+        const amountStr = `¥${stat.amount.toFixed(2)} · ${stat.percent.toFixed(1)}%`;
+        ctx.font = '32px sans-serif';
+        ctx.fillStyle = '#1F2329';
+        ctx.fillText(amountStr, barRight - ctx.measureText(amountStr).width, barY);
+        // 轨道 + 进度条
+        const trackY = barY + 50;
+        const trackWidth = barRight - barLeft;
+        ctx.fillStyle = '#EEF0F4';
+        ctx.beginPath();
+        ctx.roundRect(barLeft, trackY, trackWidth, 20, 10);
+        ctx.fill();
+        const fillWidth = Math.max(trackWidth * stat.percent / 100, 20);
+        ctx.fillStyle = getCategoryColor(stat.name);
+        ctx.beginPath();
+        ctx.roundRect(barLeft, trackY, fillWidth, 20, 10);
+        ctx.fill();
+        barY += 96;
+      }
+
+      // 5. 落款
+      const now = new Date();
+      const dateStr = now.getFullYear() + '-' +
+        String(now.getMonth() + 1).padStart(2, '0') + '-' +
+        String(now.getDate()).padStart(2, '0');
+      ctx.fillStyle = '#B3B9C0';
+      ctx.font = '26px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`由乌鸡记账生成 · ${dateStr}`, canvasWidth / 2, canvasHeight - 60);
+
+      // 导出 PNG：toDataURL → base64 解码 → 写入缓存目录
+      const dataUrl: string = ctx.toDataURL('image/png');
+      const base64: string = dataUrl.substring(dataUrl.indexOf(',') + 1);
+      const bytes: Uint8Array = new util.Base64Helper().decodeSync(base64);
+      const buffer: ArrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      const fileName: string = `月报海报_${this.year}${String(this.month).padStart(2, '0')}_${Date.now()}.png`;
+      const filePath: string = context.cacheDir + '/' + fileName;
+      const file = fs.openSync(filePath, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      fs.writeSync(file.fd, buffer);
+      fs.closeSync(file);
+
+      // 拉起系统分享面板
+      const uri = fileUri.getUriFromPath(filePath);
+      const shareData: systemShare.SharedData = new systemShare.SharedData({
+        utd: utd.getUniformDataTypeByFilenameExtension('.png'),
+        uri: uri,
+        title: fileName,
+        description: '月度报告海报'
+      });
+      const shareController: systemShare.ShareController = new systemShare.ShareController(shareData);
+      await shareController.show(context, {
+        selectionMode: systemShare.SelectionMode.SINGLE,
+        previewMode: systemShare.SharePreviewMode.DEFAULT
+      });
+    } catch (e) {
+      console.error('生成月报海报失败: ' + JSON.stringify(e));
+      this.getUIContext().getPromptAction().showToast({ message: '海报生成失败，请重试', duration: 2000 });
+    }
+    this.posterGenerating = false;
+  }
+
   build() {
     NavDestination() {
     Row() {
@@ -362,8 +564,22 @@ struct MonthlyReportPage {
           .fontColor($r('app.color.text_primary'))
           .layoutWeight(1)
 
-        Blank()
-          .width(40)
+        // 生成分享海报：离屏 Canvas 绘制品牌渐变月报卡片，拉起系统分享
+        SymbolGlyph($r('sys.symbol.share'))
+          .fontSize(22)
+          .fontColor([$r('app.color.text_primary')])
+          .scale({ x: this.pressedChipKey === 'share' ? 0.8 : 1, y: this.pressedChipKey === 'share' ? 0.8 : 1 })
+          .animation({ curve: MotionCurves.PRESS })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressedChipKey = 'share';
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressedChipKey = '';
+            }
+          })
+          .onClick(() => {
+            this.generateSharePoster();
+          })
       }
       .width('100%')
       .padding({ left: 20, right: 20, top: this.statusBarVp + 20, bottom: 12 })
@@ -533,6 +749,41 @@ struct MonthlyReportPage {
                 this.StatCell('记账笔数', `${this.billCount}`)
                 this.StatCell('记账天数', `${this.recordDays}`)
                 this.StatCell('最大单笔', this.maxExpenseAmount > 0 ? '¥' + this.maxExpenseAmount.toFixed(2) : '—')
+              }
+              .width('100%')
+
+              // 月末净资产（估算）+ 环比：以当前净资产为基准按收支回推
+              Divider()
+                .color($r('app.color.border_color'))
+                .margin({ top: 12, bottom: 12 })
+
+              Row() {
+                Column() {
+                  Text('月末净资产（估算）')
+                    .fontSize(12)
+                    .fontColor($r('app.color.text_secondary'))
+                    .margin({ bottom: 4 })
+                  Text((this.netAssetEnd >= 0 ? '¥' : '-¥') + Math.abs(this.netAssetEnd).toFixed(2))
+                    .fontSize(18)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(this.netAssetEnd >= 0 ? $r('app.color.income_gold') : $r('app.color.expense_red'))
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+
+                Column() {
+                  Text('较上月')
+                    .fontSize(12)
+                    .fontColor($r('app.color.text_secondary'))
+                    .margin({ bottom: 4 })
+                  Text((this.netAssetEnd - this.netAssetPrevEnd >= 0 ? '+' : '') +
+                    (this.netAssetEnd - this.netAssetPrevEnd).toFixed(2))
+                    .fontSize(14)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.netAssetEnd - this.netAssetPrevEnd >= 0 ?
+                      $r('app.color.income_gold') : $r('app.color.expense_red'))
+                }
+                .alignItems(HorizontalAlign.End)
               }
               .width('100%')
 
